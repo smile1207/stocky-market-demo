@@ -1,4 +1,4 @@
 # stocky-market-demo
 
--html -> demo
--zip -> code
+- html -> demo  
+- zip -> code  
