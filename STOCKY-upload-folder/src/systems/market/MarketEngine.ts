@@ -45,7 +45,7 @@ export function advanceDay(state: GameState): GameState {
       {
         id: `${createdAt}-daily-close`,
         day,
-        type: "daily_close",
+        type: "daily_close" as const,
         title: `第 ${day} 日收盤`,
         body: `通膨 ${(economy.inflation * 100).toFixed(1)}%，市場熱度 ${(economy.marketHeat * 100).toFixed(0)}%。`,
         createdAt
@@ -68,7 +68,7 @@ export function applyMarketSignal(state: GameState, signal: MarketSignal): GameS
       {
         id: `${signal.id}-log`,
         day: state.economy.day,
-        type: "market_signal",
+        type: "market_signal" as const,
         title: signal.title,
         body: signal.description,
         payload: { sectorImpacts: signal.sectorImpacts },
