@@ -1,4 +1,4 @@
-﻿import { Ionicons } from "@expo/vector-icons";
+import { Ionicons } from "@expo/vector-icons";
 import { StatusBar } from "expo-status-bar";
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -39,7 +39,7 @@ export default function App() {
   const [screen, setScreen] = useState<Screen>("start");
   const [selectedId, setSelectedId] = useState("grain-port");
   const [tab, setTab] = useState<Tab>("market");
-  const [message, setMessage] = useState("??皞?銝?);
+  const [message, setMessage] = useState("開市準備中");
 
   useEffect(() => {
     Promise.all([loadGameState(), loadTalentProfile()])
@@ -48,10 +48,10 @@ export default function App() {
         setTalentProfile(talents);
         setState(normalized);
         setSelectedId(normalized.stocks[0]?.id ?? "grain-port");
-        setMessage("撣鞈?撌脣??祆? SQLite 頛");
+        setMessage("市場資料已從本機 SQLite 載入");
       })
       .catch((error) => {
-        setMessage("頛憭望?嚗歇撱箇??啣???);
+        setMessage("載入失敗，已建立新市場");
         console.warn(error);
         const fallbackTalents = createEmptyTalentProfile();
         setTalentProfile(fallbackTalents);
@@ -78,7 +78,7 @@ export default function App() {
     return (
       <SafeAreaView style={styles.loading}>
         <ActivityIndicator color="#1b5b55" />
-        <Text style={styles.loadingText}>霈???渲???..</Text>
+        <Text style={styles.loadingText}>讀取市場資料...</Text>
       </SafeAreaView>
     );
   }
@@ -96,7 +96,7 @@ export default function App() {
       return;
     }
     setState(next);
-    setMessage(`蝚?${next.economy.day} ?仿??歹?撣撌脤??啣??鉑);
+    setMessage(`第 ${next.economy.day} 日開盤，市場已重新定價`);
   };
 
   const foresight = () => {
@@ -167,16 +167,16 @@ export default function App() {
   };
 
   const reset = () => {
-    Alert.alert("?蔭撣", "閬??圈?憪???demo ??", [
-      { text: "??", style: "cancel" },
+    Alert.alert("重置市場", "要重新開始這個市場 demo 嗎？", [
+      { text: "取消", style: "cancel" },
       {
-        text: "?蔭",
+        text: "重置",
         style: "destructive",
         onPress: async () => {
           const fresh = await resetGameStateWithCash(getStartingCash(talentProfile));
           setState(fresh);
           setSelectedId(fresh.stocks[0].id);
-          setMessage("撣撌脤?蝵?);
+          setMessage("市場已重置");
         }
       }
     ]);
@@ -217,8 +217,8 @@ export default function App() {
       <StatusBar style="dark" />
       <View style={styles.header}>
         <View>
-          <Text style={styles.kicker}>STOCKY 撣 Demo</Text>
-          <Text style={styles.title}>撣</Text>
+          <Text style={styles.kicker}>STOCKY 市場 Demo</Text>
+          <Text style={styles.title}>市場</Text>
         </View>
         <Pressable accessibilityLabel="Reset market" style={styles.iconButton} onPress={reset}>
           <Ionicons name="refresh" size={20} color="#23302f" />
@@ -232,28 +232,28 @@ export default function App() {
       </View>
 
       <View style={styles.economyBand}>
-        <Gauge label="Inflation" value={state.economy.inflation} dangerAt={0.08} format={(v) => `${(v * 100).toFixed(1)}%`} />
-        <Gauge label="Heat" value={state.economy.marketHeat} dangerAt={0.75} format={(v) => `${(v * 100).toFixed(0)}%`} />
-        <Gauge label="Stability Fund" value={state.economy.stabilityFund / 320} dangerAt={0.15} format={() => `$${state.economy.stabilityFund.toFixed(0)}`} />
+        <Gauge label="通膨" value={state.economy.inflation} dangerAt={0.08} format={(v) => `${(v * 100).toFixed(1)}%`} />
+        <Gauge label="熱度" value={state.economy.marketHeat} dangerAt={0.75} format={(v) => `${(v * 100).toFixed(0)}%`} />
+        <Gauge label="穩定基金" value={state.economy.stabilityFund / 320} dangerAt={0.15} format={() => `$${state.economy.stabilityFund.toFixed(0)}`} />
       </View>
 
       <View style={styles.toolbar}>
         <Pressable style={[styles.primaryButton, styles.dayButton]} onPress={nextDay}>
           <Ionicons name="play-forward" size={17} color="#fff" />
-          <Text style={styles.primaryButtonText}>Next Day</Text>
+          <Text style={styles.primaryButtonText}>下一日</Text>
         </Pressable>
         <Pressable style={styles.tokenButton} onPress={foresight}>
           <Ionicons name="sparkles" size={17} color="#5a3612" />
-          <Text style={styles.tokenButtonText}>Foresight {state.economy.token}</Text>
+          <Text style={styles.tokenButtonText}>預知 {state.economy.token}</Text>
         </Pressable>
       </View>
 
       <Text style={styles.message}>{message}</Text>
 
       <View style={styles.tabs}>
-        <TabButton active={tab === "market"} icon="trending-up" label="撣" onPress={() => setTab("market")} />
-        <TabButton active={tab === "portfolio"} icon="wallet" label="鞈" onPress={() => setTab("portfolio")} />
-        <TabButton active={tab === "news"} icon="newspaper" label="鈭辣" onPress={() => setTab("news")} />
+        <TabButton active={tab === "market"} icon="trending-up" label="市場" onPress={() => setTab("market")} />
+        <TabButton active={tab === "portfolio"} icon="wallet" label="資產" onPress={() => setTab("portfolio")} />
+        <TabButton active={tab === "news"} icon="newspaper" label="事件" onPress={() => setTab("news")} />
       </View>
 
       {tab === "market" && (
@@ -408,7 +408,7 @@ function MarketView({
           <View>
             <Text style={styles.stockName}>{selectedStock.name}</Text>
             <Text style={styles.stockMeta}>
-              {selectedStock.code} 繚 {sectorLabel(selectedStock.sector)}
+              {selectedStock.code} · {sectorLabel(selectedStock.sector)}
             </Text>
           </View>
           <View style={[styles.priceBadge, direction === "up" ? styles.priceUp : styles.priceDown]}>
@@ -422,26 +422,26 @@ function MarketView({
         <Text style={styles.description}>{selectedStock.description}</Text>
 
         <View style={styles.depthGrid}>
-          <Depth label="Demand" value={selectedStock.demand} color="#1b5b55" />
-          <Depth label="Supply" value={selectedStock.supply} color="#9f6a1b" />
-          <Depth label="Stability" value={selectedStock.stability * 100} color="#47618c" />
-          <Depth label="Volatility" value={selectedStock.volatility * 1000} color="#8a4a64" />
+          <Depth label="需求" value={selectedStock.demand} color="#1b5b55" />
+          <Depth label="供給" value={selectedStock.supply} color="#9f6a1b" />
+          <Depth label="穩定度" value={selectedStock.stability * 100} color="#47618c" />
+          <Depth label="波動率" value={selectedStock.volatility * 1000} color="#8a4a64" />
         </View>
       </View>
 
       <View style={styles.tradePanel}>
-        <Text style={styles.sectionTitle}>Trade Lots</Text>
+        <Text style={styles.sectionTitle}>定價買賣</Text>
         <View style={styles.tradeRows}>
           {tradeLots.map((lot) => (
             <View key={lot} style={styles.tradeRow}>
-              <Text style={styles.lotText}>{lot} shares</Text>
+              <Text style={styles.lotText}>{lot} 股</Text>
               <Pressable style={styles.buyButton} onPress={() => onTrade("buy", lot)}>
                 <Ionicons name="add" size={18} color="#fff" />
-                <Text style={styles.tradeButtonText}>Buy</Text>
+                <Text style={styles.tradeButtonText}>買</Text>
               </Pressable>
               <Pressable style={styles.sellButton} onPress={() => onTrade("sell", lot)}>
                 <Ionicons name="remove" size={18} color="#fff" />
-                <Text style={styles.tradeButtonText}>Sell</Text>
+                <Text style={styles.tradeButtonText}>賣</Text>
               </Pressable>
             </View>
           ))}
@@ -454,11 +454,11 @@ function MarketView({
 function PortfolioView({ state, onSelect }: { state: GameState; onSelect: (id: string) => void }) {
   return (
     <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-      <Text style={styles.sectionTitle}>?</Text>
+      <Text style={styles.sectionTitle}>持股</Text>
       {state.holdings.length === 0 ? (
         <View style={styles.emptyState}>
           <Ionicons name="file-tray" size={24} color="#7b827e" />
-          <Text style={styles.emptyText}>撠???∠巨</Text>
+          <Text style={styles.emptyText}>尚未持有股票</Text>
         </View>
       ) : (
         state.holdings.map((holding) => {
@@ -471,7 +471,7 @@ function PortfolioView({ state, onSelect }: { state: GameState; onSelect: (id: s
               <View>
                 <Text style={styles.holdingName}>{stock.name}</Text>
                 <Text style={styles.holdingMeta}>
-                  {holding.shares} ??繚 ? ${holding.averageCost.toFixed(2)}
+                  {holding.shares} 股 · 均價 ${holding.averageCost.toFixed(2)}
                 </Text>
               </View>
               <View style={styles.holdingValue}>
@@ -490,7 +490,7 @@ function NewsView({ state }: { state: GameState }) {
   return (
     <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
       <View style={styles.eventPanel}>
-        <Text style={styles.sectionTitle}>撣銵??</Text>
+        <Text style={styles.sectionTitle}>市場行情預知</Text>
         {state.upcomingSignal?.knownByForesight ? (
           <View style={styles.foresightPanel}>
             <Ionicons name="eye" size={21} color="#5a3612" />
@@ -500,11 +500,11 @@ function NewsView({ state }: { state: GameState }) {
             </View>
           </View>
         ) : (
-          <Text style={styles.mutedText}>No foresight is active today.</Text>
+          <Text style={styles.mutedText}>尚未預知下一個行情。使用代幣可提前看到一次市場訊號。</Text>
         )}
       </View>
 
-      <Text style={styles.sectionTitle}>?啗???</Text>
+      <Text style={styles.sectionTitle}>新聞時事</Text>
       {state.news.map((item, index) => (
         <View key={`${item}-${index}`} style={styles.newsRow}>
           <View style={styles.newsDot} />
