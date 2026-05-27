@@ -1,4 +1,4 @@
-import { Economy, GameState, Holding, Sector, Stock, TradeResult, WorldEvent } from "./types";
+import { Economy, GameState, Holding, Sector, Stock, TradeResult, WorldEvent, NewsItem } from "./types";
 
 const sectors: Record<Sector, string> = {
   food: "民生",
@@ -20,7 +20,9 @@ const initialStocks: Stock[] = [
     demand: 104,
     stability: 0.82,
     volatility: 0.045,
-    description: "掌握城市糧食與日用品批發，是通膨壓力的第一警報。"
+    description: "掌握城市糧食與日用品批發，是通膨壓力的第一警報。",
+    history: [42],
+    volume: 0
   },
   {
     id: "ember-grid",
@@ -33,7 +35,9 @@ const initialStocks: Stock[] = [
     demand: 96,
     stability: 0.66,
     volatility: 0.07,
-    description: "燃料與電力供應商，對供需和通膨變化特別敏感。"
+    description: "燃料與電力供應商，對供需和通膨變化特別敏感。",
+    history: [64],
+    volume: 0
   },
   {
     id: "north-lens",
@@ -46,7 +50,9 @@ const initialStocks: Stock[] = [
     demand: 112,
     stability: 0.55,
     volatility: 0.09,
-    description: "預測模型與情報終端供應商，和代幣預知能力有強連動。"
+    description: "預測模型與情報終端供應商，和代幣預知能力有強連動。",
+    history: [78],
+    volume: 0
   },
   {
     id: "riverline",
@@ -59,7 +65,9 @@ const initialStocks: Stock[] = [
     demand: 88,
     stability: 0.74,
     volatility: 0.055,
-    description: "貨運、倉儲、港口路線。市場熱度高時成交量會跟著放大。"
+    description: "貨運、倉儲、港口路線。市場熱度高時成交量會跟著放大。",
+    history: [36],
+    volume: 0
   },
   {
     id: "moon-silk",
@@ -72,7 +80,9 @@ const initialStocks: Stock[] = [
     demand: 78,
     stability: 0.44,
     volatility: 0.11,
-    description: "高級服飾與收藏品，適合做高風險高報酬標的。"
+    description: "高級服飾與收藏品，適合做高風險高報酬標的。",
+    history: [55],
+    volume: 0
   }
 ];
 
@@ -121,6 +131,51 @@ const marketSignalDeck: Omit<WorldEvent, "id" | "day">[] = [
     inflationImpact: 0.006,
     heatImpact: 0.08,
     duration: 2
+  },
+  {
+    title: "全球能源危機",
+    source: "market",
+    description: "國際燃料價格暴漲，能源股大漲，科技與民生受壓抑。",
+    sectorImpacts: { energy: 0.14, tech: -0.06, food: -0.04 },
+    inflationImpact: 0.018,
+    heatImpact: 0.05,
+    duration: 3
+  },
+  {
+    title: "科技巨頭財報亮眼",
+    source: "market",
+    description: "晶片與終端設備銷量超出預期，科技板塊氣勢如虹。",
+    sectorImpacts: { tech: 0.15, luxury: 0.05, logistics: 0.02 },
+    inflationImpact: 0.002,
+    heatImpact: 0.09,
+    duration: 2
+  },
+  {
+    title: "物流網路大癱瘓",
+    source: "market",
+    description: "重要航道因事故受阻，供應鏈中斷推升物價。",
+    sectorImpacts: { logistics: -0.12, food: 0.05, energy: 0.03 },
+    inflationImpact: 0.015,
+    heatImpact: -0.04,
+    duration: 3
+  },
+  {
+    title: "奢侈品概念展銷會",
+    source: "market",
+    description: "年度精品展吸引大量富豪投資，奢侈板塊交投熱絡。",
+    sectorImpacts: { luxury: 0.13, tech: 0.02 },
+    inflationImpact: 0.004,
+    heatImpact: 0.06,
+    duration: 2
+  },
+  {
+    title: "穩定基金緊急釋出",
+    source: "market",
+    description: "政府撥款穩定民生基本物資，平抑高通膨。",
+    sectorImpacts: { food: 0.03, energy: 0.02, luxury: -0.05 },
+    inflationImpact: -0.012,
+    heatImpact: -0.06,
+    duration: 2
   }
 ];
 
@@ -128,7 +183,67 @@ export const sectorLabel = (sector: Sector) => sectors[sector];
 
 export const baseInitialAsset = 1200;
 
+export function getMarketIndexPrice(stocks: Stock[]): number {
+  if (stocks.length === 0) return 0;
+  const sum = stocks.reduce((acc, stock) => acc + stock.price, 0);
+  return Math.round((sum / stocks.length) * 100) / 100;
+}
+
+export function formatMinutes(minutes: number): string {
+  const startHour = 9;
+  const totalMins = startHour * 60 + minutes;
+  const hour = Math.floor(totalMins / 60);
+  const min = totalMins % 60;
+  return `${hour.toString().padStart(2, "0")}:${min.toString().padStart(2, "0")}`;
+}
+
 export function createInitialState(initialCash = baseInitialAsset): GameState {
+  let stocks = initialStocks.map((stock) => ({
+    ...stock,
+    history: [stock.price],
+    volume: 0
+  }));
+
+  const day = 1;
+  const pmEvent1 = marketSignalDeck[0];
+  const pmEvent2 = marketSignalDeck[1];
+
+  stocks = stocks.map((stock) => {
+    const impact1 = pmEvent1.sectorImpacts[stock.sector] ?? 0;
+    const impact2 = pmEvent2.sectorImpacts[stock.sector] ?? 0;
+    const totalImpact = impact1 + impact2;
+    const price = roundMoney(
+      clamp(stock.price * (1 + totalImpact), stock.basePrice * 0.35, stock.basePrice * 3.2)
+    );
+    return {
+      ...stock,
+      price,
+      basePrice: price,
+      history: [price]
+    };
+  });
+
+  const companyIds1 = stocks.filter((s) => pmEvent1.sectorImpacts[s.sector] !== undefined).map((s) => s.id);
+  const companyIds2 = stocks.filter((s) => pmEvent2.sectorImpacts[s.sector] !== undefined).map((s) => s.id);
+
+  const newsItem1: NewsItem = {
+    id: `pm-1-1`,
+    text: `【盤前新聞】${pmEvent1.title}：${pmEvent1.description}`,
+    day,
+    time: "盤前",
+    companyIds: companyIds1
+  };
+  const newsItem2: NewsItem = {
+    id: `pm-1-2`,
+    text: `【盤前新聞】${pmEvent2.title}：${pmEvent2.description}`,
+    day,
+    time: "盤前",
+    companyIds: companyIds2
+  };
+
+  const overallPrice = getMarketIndexPrice(stocks);
+  const intradayNewsTimes = [75, 180]; // Day 1 intraday news timings
+
   return {
     economy: {
       day: 1,
@@ -139,14 +254,30 @@ export function createInitialState(initialCash = baseInitialAsset): GameState {
       token: 2,
       foresightUsedToday: false
     },
-    stocks: initialStocks.map((stock) => ({ ...stock })),
+    stocks,
     holdings: [],
     activeSignals: [],
     upcomingSignal: createSignal(2, 0),
     initialAsset: initialCash,
     highestEquity: initialCash,
     endResult: null,
-    news: ["市場模組啟動：第一階段測試開始，採單機模擬。"]
+    news: ["市場模組啟動：第一階段測試開始，採單機模擬。"],
+    newsList: [
+      newsItem2,
+      newsItem1,
+      {
+        id: "init-news",
+        text: "市場模組啟動：第一階段測試開始，採單機模擬。",
+        day: 1,
+        time: "開市"
+      }
+    ],
+    marketHistory: [overallPrice],
+    currentMinutes: 0,
+    isTrading: false,
+    isPaused: true,
+    gameSpeed: 60,
+    intradayNewsTimes
   };
 }
 
@@ -166,10 +297,20 @@ export function buyStock(state: GameState, stockId: string, shares: number): Tra
           ...item,
           demand: clamp(item.demand + shares * 1.7, 35, 180),
           supply: clamp(item.supply - shares * 0.9, 30, 180),
-          price: roundMoney(item.price * (1 + shares * 0.004))
+          price: roundMoney(item.price * (1 + shares * 0.004)),
+          volume: item.volume + shares
         }
       : item
   );
+
+  const timeStr = formatMinutes(state.currentMinutes);
+  const newsItem: NewsItem = {
+    id: `trade-${state.economy.day}-${state.currentMinutes}-buy-${stockId}-${Date.now()}`,
+    text: `買入 ${stock.name} ${shares} 股，成交價 ${stock.price.toFixed(2)}。`,
+    day: state.economy.day,
+    time: timeStr,
+    companyIds: [stockId]
+  };
 
   return {
     state: {
@@ -177,7 +318,8 @@ export function buyStock(state: GameState, stockId: string, shares: number): Tra
       economy: { ...state.economy, cash: roundMoney(state.economy.cash - cost) },
       holdings,
       stocks,
-      news: [`買入 ${stock.name} ${shares} 股，成交價 ${stock.price.toFixed(2)}。`, ...state.news].slice(0, 12)
+      news: [`買入 ${stock.name} ${shares} 股，成交價 ${stock.price.toFixed(2)}。`, ...state.news].slice(0, 12),
+      newsList: [newsItem, ...state.newsList]
     },
     message: `買入成功，花費 ${cost.toFixed(2)}。`
   };
@@ -199,10 +341,20 @@ export function sellStock(state: GameState, stockId: string, shares: number): Tr
           ...item,
           demand: clamp(item.demand - shares * 1.1, 35, 180),
           supply: clamp(item.supply + shares * 1.4, 30, 180),
-          price: roundMoney(item.price * (1 - shares * 0.0035))
+          price: roundMoney(item.price * (1 - shares * 0.0035)),
+          volume: item.volume + shares
         }
       : item
   );
+
+  const timeStr = formatMinutes(state.currentMinutes);
+  const newsItem: NewsItem = {
+    id: `trade-${state.economy.day}-${state.currentMinutes}-sell-${stockId}-${Date.now()}`,
+    text: `賣出 ${stock.name} ${shares} 股，成交價 ${stock.price.toFixed(2)}。`,
+    day: state.economy.day,
+    time: timeStr,
+    companyIds: [stockId]
+  };
 
   return {
     state: {
@@ -210,7 +362,8 @@ export function sellStock(state: GameState, stockId: string, shares: number): Tr
       economy: { ...state.economy, cash: roundMoney(state.economy.cash + proceeds) },
       holdings,
       stocks,
-      news: [`賣出 ${stock.name} ${shares} 股，成交價 ${stock.price.toFixed(2)}。`, ...state.news].slice(0, 12)
+      news: [`賣出 ${stock.name} ${shares} 股，成交價 ${stock.price.toFixed(2)}。`, ...state.news].slice(0, 12),
+      newsList: [newsItem, ...state.newsList]
     },
     message: `賣出成功，收入 ${proceeds.toFixed(2)}。`
   };
@@ -221,6 +374,14 @@ export function useForesight(state: GameState): TradeResult {
   if (state.economy.foresightUsedToday) return { state, message: "今天已經使用過預知。" };
   if (!state.upcomingSignal) return { state, message: "目前沒有可預知行情。" };
 
+  const timeStr = formatMinutes(state.currentMinutes);
+  const newsItem: NewsItem = {
+    id: `foresight-${state.economy.day}-${state.currentMinutes}`,
+    text: `代幣預知：明日可能出現「${state.upcomingSignal.title}」。`,
+    day: state.economy.day,
+    time: timeStr
+  };
+
   return {
     state: {
       ...state,
@@ -230,42 +391,242 @@ export function useForesight(state: GameState): TradeResult {
         foresightUsedToday: true
       },
       upcomingSignal: { ...state.upcomingSignal, knownByForesight: true },
-      news: [`代幣預知：明日可能出現「${state.upcomingSignal.title}」。`, ...state.news].slice(0, 12)
+      news: [`代幣預知：明日可能出現「${state.upcomingSignal.title}」。`, ...state.news].slice(0, 12),
+      newsList: [newsItem, ...state.newsList]
     },
     message: `你預知了 ${state.upcomingSignal.title}。`
   };
 }
 
+export function tickMarket(state: GameState): GameState {
+  if (!state.isTrading || state.isPaused) return state;
+
+  const nextMinutes = state.currentMinutes + 5;
+  const isClose = nextMinutes >= 270;
+  const minutes = Math.min(270, nextMinutes);
+  const timeStr = formatMinutes(minutes);
+
+  let stocks = state.stocks.map((stock) => {
+    // 1. Intraday price fluctuation based on active signals and market state
+    const eventImpact = state.activeSignals.reduce(
+      (sum, event) => sum + (event.sectorImpacts[stock.sector] ?? 0),
+      0
+    );
+    const demandPressure = (stock.demand - stock.supply) / 220;
+    const inflationLift = state.economy.inflation * (stock.sector === "food" || stock.sector === "energy" ? 0.62 : 0.28);
+    const heatLift = (state.economy.marketHeat - 0.45) * stock.volatility;
+    const stabilizer = ((stock.basePrice - stock.price) / stock.basePrice) * stock.stability * 0.08;
+
+    // Combined and scaled down by 45 for smooth intraday updates
+    const baseChange = (demandPressure + eventImpact + inflationLift + heatLift + stabilizer) / 45;
+    const randomNoise = (Math.random() - 0.5) * stock.volatility * 0.3; // active intraday fluctuation
+
+    const change = clamp(baseChange + randomNoise, -0.02, 0.02); // max 2% change per 5 mins
+    const price = roundMoney(clamp(stock.price * (1 + change), stock.basePrice * 0.35, stock.basePrice * 3.2));
+
+    // 2. Intraday demand/supply drift
+    const demand = clamp(stock.demand * 0.99 + 0.8, 35, 180);
+    const supply = clamp(stock.supply * 0.99 + 0.9, 30, 180);
+
+    // 3. Increment simulated volume
+    const tickVolume = Math.floor(Math.random() * 8) + (stock.demand > stock.supply ? 5 : 2);
+    const volume = stock.volume + tickVolume;
+
+    return {
+      ...stock,
+      price,
+      demand,
+      supply,
+      volume
+    };
+  });
+
+  let newsList = [...state.newsList];
+  let activeSignals = [...state.activeSignals];
+
+  // Check if we trigger any intraday news at this minute
+  if (state.intradayNewsTimes.includes(minutes)) {
+    const seed = Math.floor(Math.random() * 100);
+    const template = marketSignalDeck[seed % marketSignalDeck.length];
+    const eventId = `${state.economy.day}-${minutes}-${template.title}`;
+    const newEvent: WorldEvent = {
+      ...template,
+      id: eventId,
+      day: state.economy.day
+    };
+
+    const companyIds = stocks
+      .filter((s) => template.sectorImpacts[s.sector] !== undefined)
+      .map((s) => s.id);
+
+    // Apply immediate impact to price of affected stocks (30% of full daily impact)
+    stocks = stocks.map((stock) => {
+      const impact = template.sectorImpacts[stock.sector] ?? 0;
+      if (impact === 0) return stock;
+      const immediateChange = impact * 0.3;
+      const price = roundMoney(
+        clamp(stock.price * (1 + immediateChange), stock.basePrice * 0.35, stock.basePrice * 3.2)
+      );
+      return {
+        ...stock,
+        price
+      };
+    });
+
+    activeSignals.push(newEvent);
+    
+    const newsItem: NewsItem = {
+      id: eventId,
+      text: `【盤中快訊】${template.title}：${template.description}`,
+      day: state.economy.day,
+      time: timeStr,
+      companyIds
+    };
+    newsList = [newsItem, ...newsList];
+  }
+
+  const overallPrice = getMarketIndexPrice(stocks);
+
+  let nextState: GameState = {
+    ...state,
+    stocks,
+    activeSignals,
+    newsList,
+    currentMinutes: minutes
+  };
+
+  if (isClose) {
+    nextState.isTrading = false;
+    nextState.isPaused = true;
+    
+    // Append closing prices to history
+    nextState.stocks = nextState.stocks.map((stock) => ({
+      ...stock,
+      history: [...stock.history, stock.price]
+    }));
+    nextState.marketHistory = [...nextState.marketHistory, overallPrice];
+
+    // Daily economy transition
+    const economy = advanceEconomy(
+      { ...state.economy, foresightUsedToday: false },
+      nextState.activeSignals
+    );
+    
+    const day = state.economy.day;
+    nextState.activeSignals = nextState.activeSignals.filter(
+      (signal) => signal.day + signal.duration > day
+    );
+
+    const nextUpcoming =
+      !state.upcomingSignal || state.upcomingSignal.day === day + 1
+        ? createSignal(day + 2, day)
+        : state.upcomingSignal;
+
+    const tokenGain = day % 5 === 0 ? 1 : 0;
+    
+    nextState.economy = {
+      ...economy,
+      token: economy.token + tokenGain
+    };
+    nextState.upcomingSignal = nextUpcoming;
+
+    const closeNewsItem: NewsItem = {
+      id: `day-${day}-close`,
+      text: `第 ${day} 日收盤：通膨 ${(economy.inflation * 100).toFixed(1)}%，市場熱度 ${(economy.marketHeat * 100).toFixed(0)}%。`,
+      day,
+      time: "收盤"
+    };
+    nextState.newsList = [closeNewsItem, ...nextState.newsList];
+    
+    if (tokenGain) {
+      nextState.newsList = [
+        {
+          id: `day-${day}-token`,
+          text: "個人成長回饋：完成 5 日市場觀察，獲得 1 枚代幣。",
+          day,
+          time: "收盤"
+        },
+        ...nextState.newsList
+      ];
+    }
+  }
+
+  return withHighestEquity(nextState);
+}
+
 export function advanceDay(state: GameState): GameState {
   const day = state.economy.day + 1;
-  const maturedSignal = state.upcomingSignal && state.upcomingSignal.day === day ? state.upcomingSignal : undefined;
-  const activeSignals = [
-    ...state.activeSignals.filter((signal) => signal.day + signal.duration > day),
-    ...(maturedSignal ? [{ ...maturedSignal, knownByForesight: false }] : [])
-  ];
-  const nextUpcoming = maturedSignal || !state.upcomingSignal ? createSignal(day + 1 + (day % 2), day) : state.upcomingSignal;
-  const economy = advanceEconomy({ ...state.economy, day, foresightUsedToday: false }, activeSignals);
-  const stocks = state.stocks.map((stock, index) => advanceStock(stock, economy, activeSignals, day + index));
-  const tokenGain = day % 5 === 0 ? 1 : 0;
-  const signalNews = maturedSignal ? [`市場行情：${maturedSignal.title}。${maturedSignal.description}`] : [];
+  
+  let stocks = state.stocks.map((stock) => ({
+    ...stock,
+    volume: 0
+  }));
+
+  const pmEvent1 = createSignal(day, Math.floor(Math.random() * 100));
+  const pmEvent2 = createSignal(day, Math.floor(Math.random() * 100) + 12);
+
+  stocks = stocks.map((stock) => {
+    const impact1 = pmEvent1.sectorImpacts[stock.sector] ?? 0;
+    const impact2 = pmEvent2.sectorImpacts[stock.sector] ?? 0;
+    const totalImpact = impact1 + impact2;
+    
+    const price = roundMoney(
+      clamp(stock.price * (1 + totalImpact), stock.basePrice * 0.35, stock.basePrice * 3.2)
+    );
+    
+    return {
+      ...stock,
+      price,
+      basePrice: price
+    };
+  });
+
+  const companyIds1 = stocks.filter((s) => pmEvent1.sectorImpacts[s.sector] !== undefined).map((s) => s.id);
+  const companyIds2 = stocks.filter((s) => pmEvent2.sectorImpacts[s.sector] !== undefined).map((s) => s.id);
+
+  const newsItem1: NewsItem = {
+    id: `pm-${day}-1`,
+    text: `【盤前新聞】${pmEvent1.title}：${pmEvent1.description}`,
+    day,
+    time: "盤前",
+    companyIds: companyIds1
+  };
+  const newsItem2: NewsItem = {
+    id: `pm-${day}-2`,
+    text: `【盤前新聞】${pmEvent2.title}：${pmEvent2.description}`,
+    day,
+    time: "盤前",
+    companyIds: companyIds2
+  };
+
+  const count = Math.floor(Math.random() * 3) + 1; // 1 to 3 news
+  const intradayNewsTimes: number[] = [];
+  let currentMin = 30;
+  for (let i = 0; i < count; i++) {
+    const spacing = Math.max(15, Math.floor((-Math.log(Math.random()) * 60) / 5) * 5);
+    currentMin += spacing;
+    if (currentMin > 240) {
+      currentMin = 30 + Math.floor(Math.random() * 42) * 5;
+    }
+    intradayNewsTimes.push(currentMin);
+  }
+  intradayNewsTimes.sort((a, b) => a - b);
+
+  const newsList = [newsItem2, newsItem1, ...state.newsList];
 
   return withHighestEquity({
     ...state,
     economy: {
-      ...economy,
-      token: economy.token + tokenGain
+      ...state.economy,
+      day,
+      foresightUsedToday: false
     },
     stocks,
-    activeSignals,
-    upcomingSignal: nextUpcoming,
-    news: [
-      ...signalNews,
-      tokenGain ? "個人成長回饋：完成 5 日市場觀察，獲得 1 枚代幣。" : "",
-      `第 ${day} 日收盤：通膨 ${(economy.inflation * 100).toFixed(1)}%，市場熱度 ${(economy.marketHeat * 100).toFixed(0)}%。`
-    ]
-      .filter(Boolean)
-      .concat(state.news)
-      .slice(0, 12)
+    newsList,
+    currentMinutes: 0,
+    isTrading: false,
+    isPaused: true,
+    intradayNewsTimes
   });
 }
 
@@ -307,24 +668,6 @@ function advanceEconomy(economy: Economy, events: WorldEvent[]): Economy {
   };
 }
 
-function advanceStock(stock: Stock, economy: Economy, events: WorldEvent[], seed: number): Stock {
-  const eventImpact = events.reduce((sum, event) => sum + (event.sectorImpacts[stock.sector] ?? 0), 0);
-  const demandPressure = (stock.demand - stock.supply) / 220;
-  const inflationLift = economy.inflation * (stock.sector === "food" || stock.sector === "energy" ? 0.62 : 0.28);
-  const heatLift = (economy.marketHeat - 0.45) * stock.volatility;
-  const deterministicNoise = Math.sin(seed * 12.9898 + stock.basePrice) * stock.volatility * 0.42;
-  const stabilizer = (stock.basePrice - stock.price) / stock.basePrice * stock.stability * 0.08;
-  const change = clamp(demandPressure + eventImpact + inflationLift + heatLift + deterministicNoise + stabilizer, -0.24, 0.28);
-  const price = roundMoney(clamp(stock.price * (1 + change), stock.basePrice * 0.35, stock.basePrice * 3.2));
-
-  return {
-    ...stock,
-    price,
-    demand: clamp(stock.demand * 0.88 + 75 + economy.marketHeat * 26 + eventImpact * 80, 35, 180),
-    supply: clamp(stock.supply * 0.9 + 84 - eventImpact * 42 - economy.inflation * 60, 30, 180)
-  };
-}
-
 function upsertHolding(holdings: Holding[], stockId: string, shares: number, price: number): Holding[] {
   const existing = holdings.find((item) => item.stockId === stockId);
   if (!existing) return [...holdings, { stockId, shares, averageCost: price }];
@@ -355,3 +698,4 @@ function clamp(value: number, min: number, max: number): number {
 function roundMoney(value: number): number {
   return Math.round(value * 100) / 100;
 }
+

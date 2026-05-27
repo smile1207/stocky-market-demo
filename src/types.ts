@@ -12,6 +12,8 @@ export type Stock = {
   stability: number;
   volatility: number;
   description: string;
+  history: number[]; // Price history
+  volume: number;    // Daily volume
 };
 
 export type Holding = {
@@ -43,13 +45,28 @@ export type WorldEvent = {
   knownByForesight?: boolean;
 };
 
+export type NewsItem = {
+  id: string;
+  text: string;
+  day: number;
+  time: string; // e.g. "盤前" or "10:35"
+  companyIds?: string[]; // IDs of involved companies
+};
+
 export type GameState = {
   economy: Economy;
   stocks: Stock[];
   holdings: Holding[];
   activeSignals: WorldEvent[];
   upcomingSignal?: WorldEvent;
-  news: string[];
+  news: string[]; // Legacy compatibility
+  newsList: NewsItem[];
+  marketHistory: number[]; // Index price history
+  currentMinutes: number; // 0 to 270 (representing 09:00 to 13:30)
+  isTrading: boolean;     // Whether trading is active
+  isPaused: boolean;      // Whether trading is paused
+  gameSpeed: number;      // 45, 60, or 120
+  intradayNewsTimes: number[]; // Tick minutes when news will trigger today
   initialAsset: number;
   highestEquity: number;
   endResult?: SettlementResult | null;
@@ -72,3 +89,4 @@ export type TalentProfile = {
   lifetimePoints: number;
   talentLevels: Record<string, number>;
 };
+
