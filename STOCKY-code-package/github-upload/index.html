@@ -126,6 +126,12 @@
         font-weight: 750;
       }
 
+      .start-points {
+        margin: -12px 0 24px;
+        color: var(--gold);
+        font-weight: 900;
+      }
+
       .start-button {
         min-height: 54px;
         padding: 0 28px;
@@ -170,7 +176,7 @@
 
       .settlement-grid {
         display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
+        grid-template-columns: repeat(3, minmax(0, 1fr));
         gap: 10px;
         margin-bottom: 24px;
       }
@@ -184,6 +190,10 @@
 
       .settlement-metric:first-child {
         background: var(--mint);
+      }
+
+      .settlement-metric:nth-child(2) {
+        background: var(--gold);
       }
 
       .settlement-metric:last-child {
@@ -667,6 +677,7 @@
         <div class="start-logo">STOCKY MARKET DEMO</div>
         <h1 class="start-title">STOCKY</h1>
         <p class="start-copy">買賣股票、觀察市場消息，在價格波動中累積資產。</p>
+        <p class="start-points">可用天賦點：<span id="startTalentPointsText">0</span></p>
         <button class="start-button" id="startGameBtn">開始遊戲</button>
       </div>
     </section>
@@ -767,6 +778,10 @@
           <div class="settlement-metric">
             <span>結束資產</span>
             <strong id="finalEquityText">$0</strong>
+          </div>
+          <div class="settlement-metric">
+            <span>天賦點</span>
+            <strong id="talentPointsText">0</strong>
           </div>
         </div>
         <p class="settlement-copy" id="settlementCopy">你完成了 30 天的市場挑戰。</p>
@@ -895,16 +910,19 @@
       ];
 
       const lots = [1, 5, 10];
+      const initialAsset = 1200;
       const storageKey = "stocky-market-demo-html";
+      const talentStorageKey = "stocky-market-demo-talents";
       let selectedId = "grain-port";
       let activeTab = "market";
       let state = loadState();
+      let talentProfile = loadTalentProfile();
 
       function createInitialState() {
         return {
           economy: {
             day: 1,
-            cash: 1200,
+            cash: initialAsset,
             inflation: 0.021,
             marketHeat: 0.46,
             stabilityFund: 240,
@@ -915,7 +933,7 @@
           holdings: [],
           activeSignals: [],
           upcomingSignal: createSignal(2, 0),
-          highestEquity: 1200,
+          highestEquity: initialAsset,
           endResult: null,
           news: ["市場模組啟動：第一階段測試開始，採單機展示。"]
         };
@@ -931,13 +949,54 @@
       }
 
       function normalizeState(nextState) {
-        if (typeof nextState.highestEquity !== "number") nextState.highestEquity = 1200;
+        if (typeof nextState.highestEquity !== "number") nextState.highestEquity = initialAsset;
         if (!("endResult" in nextState)) nextState.endResult = null;
+        if (nextState.endResult && typeof nextState.endResult.talentPoints !== "number") {
+          nextState.endResult.talentPoints = calculateTalentPoints(
+            nextState.endResult.finalEquity,
+            nextState.endResult.highestEquity
+          );
+        }
         return nextState;
       }
 
       function saveState() {
         localStorage.setItem(storageKey, JSON.stringify(state));
+      }
+
+      function loadTalentProfile() {
+        try {
+          const saved = localStorage.getItem(talentStorageKey);
+          return saved ? normalizeTalentProfile(JSON.parse(saved)) : normalizeTalentProfile({});
+        } catch {
+          return normalizeTalentProfile({});
+        }
+      }
+
+      function normalizeTalentProfile(profile) {
+        return {
+          availablePoints: Number(profile.availablePoints) || 0,
+          lifetimePoints: Number(profile.lifetimePoints) || 0,
+          unlockedTalents: profile.unlockedTalents || {}
+        };
+      }
+
+      function saveTalentProfile() {
+        localStorage.setItem(talentStorageKey, JSON.stringify(talentProfile));
+      }
+
+      function renderTalentPoints() {
+        const target = document.getElementById("startTalentPointsText");
+        if (target) target.textContent = talentProfile.availablePoints;
+      }
+
+      function unlockTalent(talentId, cost) {
+        if (talentProfile.unlockedTalents[talentId] || talentProfile.availablePoints < cost) return false;
+        talentProfile.availablePoints -= cost;
+        talentProfile.unlockedTalents[talentId] = true;
+        saveTalentProfile();
+        renderTalentPoints();
+        return true;
       }
 
       function buyStock(stockId, shares) {
@@ -1192,12 +1251,23 @@
         return `$${roundMoney(value).toFixed(0)}`;
       }
 
+      function calculateTalentPoints(finalEquity, highestEquity) {
+        return Math.round((finalEquity / initialAsset) * 100 + (highestEquity / initialAsset) * 70);
+      }
+
       function finishGame() {
         updateHighestEquity();
+        const finalEquity = totalEquity();
+        const talentPoints = calculateTalentPoints(finalEquity, state.highestEquity);
         state.endResult = {
           highestEquity: state.highestEquity,
-          finalEquity: totalEquity()
+          finalEquity,
+          talentPoints
         };
+        talentProfile.availablePoints += talentPoints;
+        talentProfile.lifetimePoints += talentPoints;
+        saveTalentProfile();
+        renderTalentPoints();
         saveState();
         showSettlement();
       }
@@ -1205,12 +1275,14 @@
       function showSettlement() {
         const result = state.endResult || {
           highestEquity: state.highestEquity,
-          finalEquity: totalEquity()
+          finalEquity: totalEquity(),
+          talentPoints: calculateTalentPoints(totalEquity(), state.highestEquity)
         };
         document.getElementById("highestEquityText").textContent = formatMoney(result.highestEquity);
         document.getElementById("finalEquityText").textContent = formatMoney(result.finalEquity);
+        document.getElementById("talentPointsText").textContent = result.talentPoints;
         document.getElementById("settlementCopy").textContent =
-          `你完成了 30 天挑戰，最高資產比起始資金多 ${formatMoney(result.highestEquity - 1200)}。`;
+          `本局獲得 ${result.talentPoints} 天賦點，目前可用 ${talentProfile.availablePoints} 點。`;
         document.getElementById("gameApp").classList.add("is-hidden");
         document.getElementById("startScreen").classList.add("is-hidden");
         document.getElementById("settlementScreen").classList.remove("is-hidden");
@@ -1222,6 +1294,7 @@
         activeTab = "market";
         localStorage.removeItem(storageKey);
         render();
+        renderTalentPoints();
         document.getElementById("settlementScreen").classList.add("is-hidden");
         document.getElementById("gameApp").classList.add("is-hidden");
         document.getElementById("startScreen").classList.remove("is-hidden");
@@ -1279,6 +1352,7 @@
         render();
       });
 
+      renderTalentPoints();
       setMessage("展示版已載入，可以開始買賣。");
       render();
     </script>
