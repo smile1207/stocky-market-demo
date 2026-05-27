@@ -126,11 +126,13 @@ const marketSignalDeck: Omit<WorldEvent, "id" | "day">[] = [
 
 export const sectorLabel = (sector: Sector) => sectors[sector];
 
-export function createInitialState(): GameState {
+export const baseInitialAsset = 1200;
+
+export function createInitialState(initialCash = baseInitialAsset): GameState {
   return {
     economy: {
       day: 1,
-      cash: 1200,
+      cash: initialCash,
       inflation: 0.021,
       marketHeat: 0.46,
       stabilityFund: 240,
@@ -141,6 +143,9 @@ export function createInitialState(): GameState {
     holdings: [],
     activeSignals: [],
     upcomingSignal: createSignal(2, 0),
+    initialAsset: initialCash,
+    highestEquity: initialCash,
+    endResult: null,
     news: ["市場模組啟動：第一階段測試開始，採單機模擬。"]
   };
 }
@@ -244,7 +249,7 @@ export function advanceDay(state: GameState): GameState {
   const tokenGain = day % 5 === 0 ? 1 : 0;
   const signalNews = maturedSignal ? [`市場行情：${maturedSignal.title}。${maturedSignal.description}`] : [];
 
-  return {
+  return withHighestEquity({
     ...state,
     economy: {
       ...economy,
@@ -261,7 +266,7 @@ export function advanceDay(state: GameState): GameState {
       .filter(Boolean)
       .concat(state.news)
       .slice(0, 12)
-  };
+  });
 }
 
 export function totalEquity(state: GameState): number {
@@ -272,6 +277,19 @@ export function totalEquity(state: GameState): number {
         return sum + (stock ? stock.price * holding.shares : 0);
       }, 0)
   );
+}
+
+export function withHighestEquity(state: GameState): GameState {
+  const initialAsset = state.initialAsset ?? baseInitialAsset;
+  return {
+    ...state,
+    initialAsset,
+    highestEquity: Math.max(state.highestEquity ?? initialAsset, totalEquity(state))
+  };
+}
+
+export function calculateTalentPoints(finalEquity: number, highestEquity: number, initialAsset: number): number {
+  return Math.round((finalEquity / initialAsset) * 100 + (highestEquity / initialAsset) * 70);
 }
 
 function advanceEconomy(economy: Economy, events: WorldEvent[]): Economy {

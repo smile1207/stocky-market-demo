@@ -11,31 +11,51 @@ import {
   Text,
   View
 } from "react-native";
-import { advanceDay, buyStock, createInitialState, sectorLabel, sellStock, totalEquity, useForesight } from "./src/marketEngine";
-import { loadGameState, resetGameState, saveGameState } from "./src/storage";
-import { GameState, Stock } from "./src/types";
+import {
+  advanceDay,
+  baseInitialAsset,
+  buyStock,
+  calculateTalentPoints,
+  createInitialState,
+  sectorLabel,
+  sellStock,
+  totalEquity,
+  useForesight,
+  withHighestEquity
+} from "./src/marketEngine";
+import { loadGameState, loadTalentProfile, resetGameStateWithCash, saveGameState, saveTalentProfile } from "./src/storage";
+import { GameState, SettlementResult, Stock, TalentProfile } from "./src/types";
 
 type Tab = "market" | "portfolio" | "news";
+type Screen = "start" | "game" | "settlement" | "talent";
 
 const tradeLots = [1, 5, 10];
+const openingCashTalentId = "openingCash";
+const openingCashMaxLevel = 10;
 
 export default function App() {
   const [state, setState] = useState<GameState>();
+  const [talentProfile, setTalentProfile] = useState<TalentProfile>();
+  const [screen, setScreen] = useState<Screen>("start");
   const [selectedId, setSelectedId] = useState("grain-port");
   const [tab, setTab] = useState<Tab>("market");
   const [message, setMessage] = useState("開市準備中");
 
   useEffect(() => {
-    loadGameState()
-      .then((loaded) => {
-        setState(loaded);
-        setSelectedId(loaded.stocks[0]?.id ?? "grain-port");
+    Promise.all([loadGameState(), loadTalentProfile()])
+      .then(([loaded, talents]) => {
+        const normalized = normalizeGameState(loaded);
+        setTalentProfile(talents);
+        setState(normalized);
+        setSelectedId(normalized.stocks[0]?.id ?? "grain-port");
         setMessage("市場資料已從本機 SQLite 載入");
       })
       .catch((error) => {
         setMessage("載入失敗，已建立新市場");
         console.warn(error);
-        setState(createInitialState());
+        const fallbackTalents = createEmptyTalentProfile();
+        setTalentProfile(fallbackTalents);
+        setState(createInitialState(getStartingCash(fallbackTalents)));
       });
   }, []);
 
@@ -44,12 +64,17 @@ export default function App() {
     saveGameState(state).catch((error) => console.warn("Failed to save game state", error));
   }, [state]);
 
+  useEffect(() => {
+    if (!talentProfile) return;
+    saveTalentProfile(talentProfile).catch((error) => console.warn("Failed to save talent profile", error));
+  }, [talentProfile]);
+
   const selectedStock = useMemo(
     () => state?.stocks.find((stock) => stock.id === selectedId) ?? state?.stocks[0],
     [selectedId, state]
   );
 
-  if (!state || !selectedStock) {
+  if (!state || !selectedStock || !talentProfile) {
     return (
       <SafeAreaView style={styles.loading}>
         <ActivityIndicator color="#1b5b55" />
@@ -60,12 +85,16 @@ export default function App() {
 
   const applyTrade = (action: "buy" | "sell", shares: number) => {
     const result = action === "buy" ? buyStock(state, selectedStock.id, shares) : sellStock(state, selectedStock.id, shares);
-    setState(result.state);
+    setState(withHighestEquity(result.state));
     setMessage(result.message);
   };
 
   const nextDay = () => {
     const next = advanceDay(state);
+    if (next.economy.day >= 30) {
+      finishGame(next);
+      return;
+    }
     setState(next);
     setMessage(`第 ${next.economy.day} 日開盤，市場已重新定價`);
   };
@@ -76,6 +105,67 @@ export default function App() {
     setMessage(result.message);
   };
 
+  const finishGame = (nextState: GameState) => {
+    const settledState = withHighestEquity(nextState);
+    const finalEquity = totalEquity(settledState);
+    const result: SettlementResult = {
+      initialAsset: settledState.initialAsset,
+      highestEquity: settledState.highestEquity,
+      finalEquity,
+      talentPoints: calculateTalentPoints(finalEquity, settledState.highestEquity, settledState.initialAsset)
+    };
+    setTalentProfile({
+      ...talentProfile,
+      availablePoints: talentProfile.availablePoints + result.talentPoints,
+      lifetimePoints: talentProfile.lifetimePoints + result.talentPoints
+    });
+    setState({ ...settledState, endResult: result });
+    setScreen("settlement");
+  };
+
+  const startGame = async () => {
+    if (state.endResult) {
+      setScreen("settlement");
+      return;
+    }
+    const startingCash = getStartingCash(talentProfile);
+    if (state.economy.day === 1 && state.holdings.length === 0 && state.initialAsset !== startingCash) {
+      const fresh = await resetGameStateWithCash(startingCash);
+      setState(fresh);
+      setSelectedId(fresh.stocks[0].id);
+    }
+    setScreen("game");
+  };
+
+  const backToStart = async () => {
+    const fresh = await resetGameStateWithCash(getStartingCash(talentProfile));
+    setState(fresh);
+    setSelectedId(fresh.stocks[0].id);
+    setTab("market");
+    setScreen("start");
+  };
+
+  const upgradeOpeningCashTalent = () => {
+    const level = getTalentLevel(talentProfile, openingCashTalentId);
+    if (level >= openingCashMaxLevel) return;
+    const cost = getOpeningCashCost(level);
+    if (talentProfile.availablePoints < cost) return;
+    const nextProfile = {
+      ...talentProfile,
+      availablePoints: talentProfile.availablePoints - cost,
+      talentLevels: {
+        ...talentProfile.talentLevels,
+        [openingCashTalentId]: level + 1
+      }
+    };
+    setTalentProfile(nextProfile);
+    if (state.economy.day === 1 && state.holdings.length === 0 && !state.endResult) {
+      const fresh = createInitialState(getStartingCash(nextProfile));
+      setState(fresh);
+      setSelectedId(fresh.stocks[0].id);
+    }
+  };
+
   const reset = () => {
     Alert.alert("重置市場", "要重新開始這個市場 demo 嗎？", [
       { text: "取消", style: "cancel" },
@@ -83,7 +173,7 @@ export default function App() {
         text: "重置",
         style: "destructive",
         onPress: async () => {
-          const fresh = await resetGameState();
+          const fresh = await resetGameStateWithCash(getStartingCash(talentProfile));
           setState(fresh);
           setSelectedId(fresh.stocks[0].id);
           setMessage("市場已重置");
@@ -91,6 +181,36 @@ export default function App() {
       }
     ]);
   };
+
+  if (screen === "start") {
+    return (
+      <StartScreen
+        availablePoints={talentProfile.availablePoints}
+        onStart={startGame}
+        onTalent={() => setScreen("talent")}
+      />
+    );
+  }
+
+  if (screen === "talent") {
+    return (
+      <TalentScreen
+        profile={talentProfile}
+        onUpgradeOpeningCash={upgradeOpeningCashTalent}
+        onBack={() => setScreen("start")}
+      />
+    );
+  }
+
+  if (screen === "settlement") {
+    return (
+      <SettlementScreen
+        result={state.endResult ?? createSettlementResult(state)}
+        availablePoints={talentProfile.availablePoints}
+        onBackToStart={backToStart}
+      />
+    );
+  }
 
   return (
     <SafeAreaView style={styles.shell}>
@@ -151,6 +271,107 @@ export default function App() {
   );
 }
 
+function StartScreen({
+  availablePoints,
+  onStart,
+  onTalent
+}: {
+  availablePoints: number;
+  onStart: () => void;
+  onTalent: () => void;
+}) {
+  return (
+    <SafeAreaView style={styles.menuShell}>
+      <StatusBar style="dark" />
+      <View style={styles.menuPanel}>
+        <Text style={styles.kicker}>STOCKY MARKET DEMO</Text>
+        <Text style={styles.menuTitle}>STOCKY</Text>
+        <Text style={styles.menuCopy}>Trade stocks, read market signals, and grow assets across 30 days.</Text>
+        <Text style={styles.menuPoints}>Talent points: {availablePoints}</Text>
+        <View style={styles.menuActions}>
+          <Pressable style={[styles.primaryButton, styles.menuActionButton]} onPress={onStart}>
+            <Text style={styles.primaryButtonText}>Start Game</Text>
+          </Pressable>
+          <Pressable style={[styles.secondaryButton, styles.menuActionButton]} onPress={onTalent}>
+            <Text style={styles.secondaryButtonText}>Talent Tree</Text>
+          </Pressable>
+        </View>
+      </View>
+    </SafeAreaView>
+  );
+}
+
+function TalentScreen({
+  profile,
+  onUpgradeOpeningCash,
+  onBack
+}: {
+  profile: TalentProfile;
+  onUpgradeOpeningCash: () => void;
+  onBack: () => void;
+}) {
+  const level = getTalentLevel(profile, openingCashTalentId);
+  const cost = getOpeningCashCost(level);
+  const isMaxed = level >= openingCashMaxLevel;
+  const canUpgrade = !isMaxed && profile.availablePoints >= cost;
+
+  return (
+    <SafeAreaView style={styles.menuShell}>
+      <StatusBar style="dark" />
+      <View style={styles.menuPanel}>
+        <Text style={styles.kicker}>TALENT TREE</Text>
+        <Text style={styles.menuHeading}>Talent Tree</Text>
+        <Text style={styles.menuPoints}>Talent points: {profile.availablePoints}</Text>
+
+        <View style={styles.talentCard}>
+          <View style={styles.talentCardText}>
+            <Text style={styles.talentTitle}>Starting Cash</Text>
+            <Text style={styles.menuCopy}>Each level gives +$200 starting cash. Max level 10.</Text>
+            <Text style={styles.talentMeta}>Lv. {level} / {openingCashMaxLevel}</Text>
+            <Text style={styles.talentMeta}>Start bonus +${level * 200}</Text>
+            <Text style={styles.talentMeta}>{isMaxed ? "Max level reached" : `Next level ${cost} pts`}</Text>
+          </View>
+          <Pressable style={[styles.primaryButton, styles.menuActionButton, !canUpgrade && styles.disabledButton]} disabled={!canUpgrade} onPress={onUpgradeOpeningCash}>
+            <Text style={styles.primaryButtonText}>{isMaxed ? "Maxed" : `Upgrade (${cost})`}</Text>
+          </Pressable>
+        </View>
+
+        <Pressable style={styles.secondaryButton} onPress={onBack}>
+          <Text style={styles.secondaryButtonText}>Back to Start</Text>
+        </Pressable>
+      </View>
+    </SafeAreaView>
+  );
+}
+
+function SettlementScreen({
+  result,
+  availablePoints,
+  onBackToStart
+}: {
+  result: SettlementResult;
+  availablePoints: number;
+  onBackToStart: () => void;
+}) {
+  return (
+    <SafeAreaView style={styles.menuShell}>
+      <StatusBar style="dark" />
+      <View style={styles.menuPanel}>
+        <Text style={styles.kicker}>DAY 30 REPORT</Text>
+        <Text style={styles.menuHeading}>Settlement</Text>
+        <View style={styles.settlementGrid}>
+          <Metric label="Highest Equity" value={`$${result.highestEquity.toFixed(0)}`} tone="mint" />
+          <Metric label="Final Equity" value={`$${result.finalEquity.toFixed(0)}`} tone="ink" />
+          <Metric label="Talent Points" value={`${result.talentPoints}`} tone="gold" />
+        </View>
+        <Text style={styles.menuCopy}>Earned {result.talentPoints} talent points. Available points: {availablePoints}.</Text>
+        <Pressable style={[styles.primaryButton, styles.menuActionButton]} onPress={onBackToStart}>
+          <Text style={styles.primaryButtonText}>Back to Start</Text>
+        </Pressable>
+      </View>
+    </SafeAreaView>
+  );
+}
 function MarketView({
   stocks,
   selectedStock,
@@ -341,10 +562,134 @@ function TabButton({ active, icon, label, onPress }: { active: boolean; icon: ke
   );
 }
 
+function createEmptyTalentProfile(): TalentProfile {
+  return { availablePoints: 0, lifetimePoints: 0, talentLevels: {} };
+}
+
+function normalizeGameState(state: GameState): GameState {
+  return withHighestEquity({
+    ...state,
+    initialAsset: state.initialAsset ?? baseInitialAsset,
+    highestEquity: state.highestEquity ?? state.initialAsset ?? baseInitialAsset,
+    endResult: state.endResult ?? null
+  });
+}
+
+function getTalentLevel(profile: TalentProfile, talentId: string): number {
+  return Number(profile.talentLevels[talentId]) || 0;
+}
+
+function getOpeningCashCost(level: number): number {
+  let cost = 20;
+  for (let index = 0; index < level; index += 1) cost = Math.ceil(cost * 1.15);
+  return cost;
+}
+
+function getStartingCash(profile: TalentProfile): number {
+  return baseInitialAsset + getTalentLevel(profile, openingCashTalentId) * 200;
+}
+
+function createSettlementResult(state: GameState): SettlementResult {
+  const settledState = withHighestEquity(state);
+  const finalEquity = totalEquity(settledState);
+  return {
+    initialAsset: settledState.initialAsset,
+    highestEquity: settledState.highestEquity,
+    finalEquity,
+    talentPoints: calculateTalentPoints(finalEquity, settledState.highestEquity, settledState.initialAsset)
+  };
+}
+
 const styles = StyleSheet.create({
   shell: {
     flex: 1,
     backgroundColor: "#f7f3ea"
+  },
+  menuShell: {
+    flex: 1,
+    justifyContent: "center",
+    padding: 18,
+    backgroundColor: "#f7f3ea"
+  },
+  menuPanel: {
+    borderRadius: 8,
+    padding: 24,
+    backgroundColor: "#fffaf0",
+    borderWidth: 1,
+    borderColor: "#e3dac9",
+    gap: 14
+  },
+  menuTitle: {
+    color: "#172321",
+    fontSize: 64,
+    lineHeight: 68,
+    fontWeight: "900"
+  },
+  menuHeading: {
+    color: "#172321",
+    fontSize: 42,
+    lineHeight: 46,
+    fontWeight: "900"
+  },
+  menuCopy: {
+    color: "#52615e",
+    fontSize: 15,
+    lineHeight: 22,
+    fontWeight: "700"
+  },
+  menuPoints: {
+    color: "#9f6a1b",
+    fontSize: 16,
+    fontWeight: "900"
+  },
+  menuActions: {
+    flexDirection: "row",
+    gap: 10
+  },
+  menuActionButton: {
+    flex: 1,
+    paddingHorizontal: 16
+  },
+  secondaryButton: {
+    minHeight: 44,
+    borderRadius: 8,
+    paddingHorizontal: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#e6dfd1"
+  },
+  secondaryButtonText: {
+    color: "#23302f",
+    fontWeight: "900",
+    fontSize: 15
+  },
+  disabledButton: {
+    opacity: 0.55
+  },
+  talentCard: {
+    borderRadius: 8,
+    padding: 14,
+    backgroundColor: "#ffffff",
+    borderWidth: 1,
+    borderColor: "#e3dac9",
+    gap: 14
+  },
+  talentCardText: {
+    gap: 5
+  },
+  talentTitle: {
+    color: "#172321",
+    fontSize: 22,
+    fontWeight: "900"
+  },
+  talentMeta: {
+    color: "#9f6a1b",
+    fontSize: 13,
+    fontWeight: "900"
+  },
+  settlementGrid: {
+    gap: 8
   },
   loading: {
     flex: 1,

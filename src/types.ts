@@ -50,9 +50,25 @@ export type GameState = {
   activeSignals: WorldEvent[];
   upcomingSignal?: WorldEvent;
   news: string[];
+  initialAsset: number;
+  highestEquity: number;
+  endResult?: SettlementResult | null;
 };
 
 export type TradeResult = {
   state: GameState;
   message: string;
+};
+
+export type SettlementResult = {
+  initialAsset: number;
+  highestEquity: number;
+  finalEquity: number;
+  talentPoints: number;
+};
+
+export type TalentProfile = {
+  availablePoints: number;
+  lifetimePoints: number;
+  talentLevels: Record<string, number>;
 };
