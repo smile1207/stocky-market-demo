@@ -141,8 +141,74 @@
       }
 
       .app.is-hidden,
-      .start-screen.is-hidden {
+      .start-screen.is-hidden,
+      .settlement-screen.is-hidden {
         display: none;
+      }
+
+      .settlement-screen {
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        padding: 24px;
+      }
+
+      .settlement-panel {
+        width: min(760px, 100%);
+        padding: clamp(28px, 7vw, 56px);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--panel);
+        box-shadow: 0 24px 70px rgba(23, 35, 33, 0.14);
+      }
+
+      .settlement-title {
+        margin: 6px 0 22px;
+        font-size: clamp(34px, 8vw, 72px);
+        line-height: 0.96;
+      }
+
+      .settlement-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+        margin-bottom: 24px;
+      }
+
+      .settlement-metric {
+        min-height: 112px;
+        padding: 16px;
+        border-radius: 8px;
+        color: white;
+      }
+
+      .settlement-metric:first-child {
+        background: var(--mint);
+      }
+
+      .settlement-metric:last-child {
+        background: var(--deep);
+      }
+
+      .settlement-metric span {
+        display: block;
+        color: rgba(255, 255, 255, 0.72);
+        font-size: 13px;
+        font-weight: 900;
+      }
+
+      .settlement-metric strong {
+        display: block;
+        margin-top: 8px;
+        font-size: clamp(28px, 6vw, 48px);
+        line-height: 1;
+      }
+
+      .settlement-copy {
+        margin: 0 0 24px;
+        color: var(--muted);
+        line-height: 1.65;
+        font-weight: 750;
       }
 
       .dashboard {
@@ -556,6 +622,18 @@
           width: 100%;
         }
 
+        .settlement-screen {
+          padding: 16px;
+        }
+
+        .settlement-panel {
+          padding: 28px;
+        }
+
+        .settlement-grid {
+          grid-template-columns: 1fr;
+        }
+
         .summary {
           grid-template-columns: repeat(3, minmax(0, 1fr));
         }
@@ -676,6 +754,25 @@
         </section>
       </div>
     </main>
+
+    <section class="settlement-screen is-hidden" id="settlementScreen">
+      <div class="settlement-panel">
+        <div class="start-logo">DAY 30 REPORT</div>
+        <h1 class="settlement-title">結算完成</h1>
+        <div class="settlement-grid">
+          <div class="settlement-metric">
+            <span>最高資產</span>
+            <strong id="highestEquityText">$0</strong>
+          </div>
+          <div class="settlement-metric">
+            <span>結束資產</span>
+            <strong id="finalEquityText">$0</strong>
+          </div>
+        </div>
+        <p class="settlement-copy" id="settlementCopy">你完成了 30 天的市場挑戰。</p>
+        <button class="start-button" id="backToStartBtn">回到開始頁</button>
+      </div>
+    </section>
 
     <script>
       const sectors = {
@@ -818,6 +915,8 @@
           holdings: [],
           activeSignals: [],
           upcomingSignal: createSignal(2, 0),
+          highestEquity: 1200,
+          endResult: null,
           news: ["市場模組啟動：第一階段測試開始，採單機展示。"]
         };
       }
@@ -825,10 +924,16 @@
       function loadState() {
         try {
           const saved = localStorage.getItem(storageKey);
-          return saved ? JSON.parse(saved) : createInitialState();
+          return normalizeState(saved ? JSON.parse(saved) : createInitialState());
         } catch {
-          return createInitialState();
+          return normalizeState(createInitialState());
         }
+      }
+
+      function normalizeState(nextState) {
+        if (typeof nextState.highestEquity !== "number") nextState.highestEquity = 1200;
+        if (!("endResult" in nextState)) nextState.endResult = null;
+        return nextState;
       }
 
       function saveState() {
@@ -908,6 +1013,11 @@
         state.news.unshift(`第 ${day} 日收盤：通膨 ${(state.economy.inflation * 100).toFixed(1)}%，市場熱度 ${(state.economy.marketHeat * 100).toFixed(0)}%。`);
         state.news = state.news.slice(0, 12);
         setMessage(`第 ${day} 日開盤，市場已重新定價。`);
+        updateHighestEquity();
+        if (day >= 30) {
+          finishGame();
+          return;
+        }
         render();
       }
 
@@ -940,6 +1050,7 @@
 
       function render() {
         const selected = state.stocks.find((stock) => stock.id === selectedId) || state.stocks[0];
+        updateHighestEquity();
         saveState();
         renderSummary();
         renderTabs();
@@ -1073,6 +1184,49 @@
         );
       }
 
+      function updateHighestEquity() {
+        state.highestEquity = Math.max(state.highestEquity || 0, totalEquity());
+      }
+
+      function formatMoney(value) {
+        return `$${roundMoney(value).toFixed(0)}`;
+      }
+
+      function finishGame() {
+        updateHighestEquity();
+        state.endResult = {
+          highestEquity: state.highestEquity,
+          finalEquity: totalEquity()
+        };
+        saveState();
+        showSettlement();
+      }
+
+      function showSettlement() {
+        const result = state.endResult || {
+          highestEquity: state.highestEquity,
+          finalEquity: totalEquity()
+        };
+        document.getElementById("highestEquityText").textContent = formatMoney(result.highestEquity);
+        document.getElementById("finalEquityText").textContent = formatMoney(result.finalEquity);
+        document.getElementById("settlementCopy").textContent =
+          `你完成了 30 天挑戰，最高資產比起始資金多 ${formatMoney(result.highestEquity - 1200)}。`;
+        document.getElementById("gameApp").classList.add("is-hidden");
+        document.getElementById("startScreen").classList.add("is-hidden");
+        document.getElementById("settlementScreen").classList.remove("is-hidden");
+      }
+
+      function resetToStartPage() {
+        state = createInitialState();
+        selectedId = "grain-port";
+        activeTab = "market";
+        localStorage.removeItem(storageKey);
+        render();
+        document.getElementById("settlementScreen").classList.add("is-hidden");
+        document.getElementById("gameApp").classList.add("is-hidden");
+        document.getElementById("startScreen").classList.remove("is-hidden");
+      }
+
       function createSignal(day, seed) {
         const template = marketSignalDeck[Math.abs(seed + day * 3) % marketSignalDeck.length];
         return { ...template, id: `${day}-${template.title}`, day };
@@ -1109,8 +1263,13 @@
       document.getElementById("foresightBtn").addEventListener("click", useForesight);
       document.getElementById("startGameBtn").addEventListener("click", () => {
         document.getElementById("startScreen").classList.add("is-hidden");
-        document.getElementById("gameApp").classList.remove("is-hidden");
+        if (state.endResult) {
+          showSettlement();
+        } else {
+          document.getElementById("gameApp").classList.remove("is-hidden");
+        }
       });
+      document.getElementById("backToStartBtn").addEventListener("click", resetToStartPage);
       document.getElementById("resetBtn").addEventListener("click", () => {
         state = createInitialState();
         selectedId = "grain-port";
