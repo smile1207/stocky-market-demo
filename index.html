@@ -44,6 +44,11 @@
         cursor: pointer;
       }
 
+      button:disabled {
+        cursor: not-allowed;
+        opacity: 0.55;
+      }
+
       .app {
         width: min(1120px, 100%);
         margin: 0 auto;
@@ -132,6 +137,12 @@
         font-weight: 900;
       }
 
+      .start-actions {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+
       .start-button {
         min-height: 54px;
         padding: 0 28px;
@@ -141,14 +152,31 @@
         font-weight: 950;
       }
 
+      .secondary-button {
+        min-height: 54px;
+        padding: 0 24px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #e6dfd1;
+        color: var(--deep);
+        font-weight: 950;
+      }
+
       .start-button:hover,
       .start-button:focus-visible {
         background: var(--mint);
       }
 
+      .secondary-button:hover,
+      .secondary-button:focus-visible {
+        background: var(--amber);
+        color: #5a3612;
+      }
+
       .app.is-hidden,
       .start-screen.is-hidden,
-      .settlement-screen.is-hidden {
+      .settlement-screen.is-hidden,
+      .talent-screen.is-hidden {
         display: none;
       }
 
@@ -219,6 +247,55 @@
         color: var(--muted);
         line-height: 1.65;
         font-weight: 750;
+      }
+
+      .talent-screen {
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        padding: 24px;
+      }
+
+      .talent-panel {
+        width: min(760px, 100%);
+        padding: clamp(28px, 7vw, 56px);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--panel);
+        box-shadow: 0 24px 70px rgba(23, 35, 33, 0.14);
+      }
+
+      .talent-card {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 16px;
+        align-items: center;
+        margin: 18px 0 24px;
+        padding: 16px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: white;
+      }
+
+      .talent-card h2 {
+        margin: 0 0 6px;
+        font-size: 22px;
+      }
+
+      .talent-card p {
+        margin: 0;
+        color: var(--muted);
+        line-height: 1.55;
+        font-weight: 750;
+      }
+
+      .talent-meta {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        margin-top: 10px;
+        color: var(--gold);
+        font-weight: 900;
       }
 
       .dashboard {
@@ -628,7 +705,12 @@
           padding: 28px;
         }
 
-        .start-button {
+        .start-actions {
+          display: grid;
+        }
+
+        .start-button,
+        .secondary-button {
           width: 100%;
         }
 
@@ -641,6 +723,18 @@
         }
 
         .settlement-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .talent-screen {
+          padding: 16px;
+        }
+
+        .talent-panel {
+          padding: 28px;
+        }
+
+        .talent-card {
           grid-template-columns: 1fr;
         }
 
@@ -678,7 +772,10 @@
         <h1 class="start-title">STOCKY</h1>
         <p class="start-copy">買賣股票、觀察市場消息，在價格波動中累積資產。</p>
         <p class="start-points">可用天賦點：<span id="startTalentPointsText">0</span></p>
-        <button class="start-button" id="startGameBtn">開始遊戲</button>
+        <div class="start-actions">
+          <button class="start-button" id="startGameBtn">開始遊戲</button>
+          <button class="secondary-button" id="talentTreeBtn">進入天賦樹</button>
+        </div>
       </div>
     </section>
 
@@ -786,6 +883,27 @@
         </div>
         <p class="settlement-copy" id="settlementCopy">你完成了 30 天的市場挑戰。</p>
         <button class="start-button" id="backToStartBtn">回到開始頁</button>
+      </div>
+    </section>
+
+    <section class="talent-screen is-hidden" id="talentScreen">
+      <div class="talent-panel">
+        <div class="start-logo">TALENT TREE</div>
+        <h1 class="settlement-title">天賦樹</h1>
+        <p class="settlement-copy">可用天賦點：<strong id="talentScreenPointsText">0</strong></p>
+        <div class="talent-card">
+          <div>
+            <h2>起始資金</h2>
+            <p>每等級開局資金 +200 元，最多 10 級。</p>
+            <div class="talent-meta">
+              <span id="openingCashLevelText">Lv. 0 / 10</span>
+              <span id="openingCashBonusText">開局 +$0</span>
+              <span id="openingCashCostText">下一級 20 點</span>
+            </div>
+          </div>
+          <button class="start-button" id="upgradeOpeningCashBtn">升級</button>
+        </div>
+        <button class="secondary-button" id="backFromTalentBtn">回到開始頁</button>
       </div>
     </section>
 
@@ -915,14 +1033,15 @@
       const talentStorageKey = "stocky-market-demo-talents";
       let selectedId = "grain-port";
       let activeTab = "market";
-      let state = loadState();
       let talentProfile = loadTalentProfile();
+      let state = loadState();
 
       function createInitialState() {
+        const startingCash = getStartingCash();
         return {
           economy: {
             day: 1,
-            cash: initialAsset,
+            cash: startingCash,
             inflation: 0.021,
             marketHeat: 0.46,
             stabilityFund: 240,
@@ -933,7 +1052,8 @@
           holdings: [],
           activeSignals: [],
           upcomingSignal: createSignal(2, 0),
-          highestEquity: initialAsset,
+          initialAsset: startingCash,
+          highestEquity: startingCash,
           endResult: null,
           news: ["市場模組啟動：第一階段測試開始，採單機展示。"]
         };
@@ -949,12 +1069,14 @@
       }
 
       function normalizeState(nextState) {
-        if (typeof nextState.highestEquity !== "number") nextState.highestEquity = initialAsset;
+        if (typeof nextState.initialAsset !== "number") nextState.initialAsset = initialAsset;
+        if (typeof nextState.highestEquity !== "number") nextState.highestEquity = nextState.initialAsset;
         if (!("endResult" in nextState)) nextState.endResult = null;
         if (nextState.endResult && typeof nextState.endResult.talentPoints !== "number") {
           nextState.endResult.talentPoints = calculateTalentPoints(
             nextState.endResult.finalEquity,
-            nextState.endResult.highestEquity
+            nextState.endResult.highestEquity,
+            nextState.initialAsset
           );
         }
         return nextState;
@@ -977,7 +1099,8 @@
         return {
           availablePoints: Number(profile.availablePoints) || 0,
           lifetimePoints: Number(profile.lifetimePoints) || 0,
-          unlockedTalents: profile.unlockedTalents || {}
+          unlockedTalents: profile.unlockedTalents || {},
+          talentLevels: profile.talentLevels || {}
         };
       }
 
@@ -986,17 +1109,53 @@
       }
 
       function renderTalentPoints() {
-        const target = document.getElementById("startTalentPointsText");
-        if (target) target.textContent = talentProfile.availablePoints;
+        const startTarget = document.getElementById("startTalentPointsText");
+        const talentTarget = document.getElementById("talentScreenPointsText");
+        if (startTarget) startTarget.textContent = talentProfile.availablePoints;
+        if (talentTarget) talentTarget.textContent = talentProfile.availablePoints;
       }
 
-      function unlockTalent(talentId, cost) {
-        if (talentProfile.unlockedTalents[talentId] || talentProfile.availablePoints < cost) return false;
+      function getTalentLevel(talentId) {
+        return Number(talentProfile.talentLevels[talentId]) || 0;
+      }
+
+      function getOpeningCashCost(level = getTalentLevel("openingCash")) {
+        let cost = 20;
+        for (let index = 0; index < level; index += 1) cost = Math.ceil(cost * 1.15);
+        return cost;
+      }
+
+      function getOpeningCashBonus() {
+        return getTalentLevel("openingCash") * 200;
+      }
+
+      function getStartingCash() {
+        return initialAsset + getOpeningCashBonus();
+      }
+
+      function renderTalentTree() {
+        const level = getTalentLevel("openingCash");
+        const maxLevel = 10;
+        const cost = getOpeningCashCost(level);
+        document.getElementById("openingCashLevelText").textContent = `Lv. ${level} / ${maxLevel}`;
+        document.getElementById("openingCashBonusText").textContent = `開局 +$${getOpeningCashBonus()}`;
+        document.getElementById("openingCashCostText").textContent = level >= maxLevel ? "已達最高等級" : `下一級 ${cost} 點`;
+        const button = document.getElementById("upgradeOpeningCashBtn");
+        button.disabled = level >= maxLevel || talentProfile.availablePoints < cost;
+        button.textContent = level >= maxLevel ? "已滿級" : `升級 (${cost})`;
+      }
+
+      function upgradeOpeningCashTalent() {
+        const talentId = "openingCash";
+        const level = getTalentLevel(talentId);
+        if (level >= 10) return;
+        const cost = getOpeningCashCost(level);
+        if (talentProfile.availablePoints < cost) return;
         talentProfile.availablePoints -= cost;
-        talentProfile.unlockedTalents[talentId] = true;
+        talentProfile.talentLevels[talentId] = level + 1;
         saveTalentProfile();
         renderTalentPoints();
-        return true;
+        renderTalentTree();
       }
 
       function buyStock(stockId, shares) {
@@ -1251,17 +1410,18 @@
         return `$${roundMoney(value).toFixed(0)}`;
       }
 
-      function calculateTalentPoints(finalEquity, highestEquity) {
-        return Math.round((finalEquity / initialAsset) * 100 + (highestEquity / initialAsset) * 70);
+      function calculateTalentPoints(finalEquity, highestEquity, runInitialAsset = state.initialAsset || initialAsset) {
+        return Math.round((finalEquity / runInitialAsset) * 100 + (highestEquity / runInitialAsset) * 70);
       }
 
       function finishGame() {
         updateHighestEquity();
         const finalEquity = totalEquity();
-        const talentPoints = calculateTalentPoints(finalEquity, state.highestEquity);
+        const talentPoints = calculateTalentPoints(finalEquity, state.highestEquity, state.initialAsset);
         state.endResult = {
           highestEquity: state.highestEquity,
           finalEquity,
+          initialAsset: state.initialAsset,
           talentPoints
         };
         talentProfile.availablePoints += talentPoints;
@@ -1276,7 +1436,8 @@
         const result = state.endResult || {
           highestEquity: state.highestEquity,
           finalEquity: totalEquity(),
-          talentPoints: calculateTalentPoints(totalEquity(), state.highestEquity)
+          initialAsset: state.initialAsset,
+          talentPoints: calculateTalentPoints(totalEquity(), state.highestEquity, state.initialAsset)
         };
         document.getElementById("highestEquityText").textContent = formatMoney(result.highestEquity);
         document.getElementById("finalEquityText").textContent = formatMoney(result.finalEquity);
@@ -1297,6 +1458,24 @@
         renderTalentPoints();
         document.getElementById("settlementScreen").classList.add("is-hidden");
         document.getElementById("gameApp").classList.add("is-hidden");
+        document.getElementById("talentScreen").classList.add("is-hidden");
+        document.getElementById("startScreen").classList.remove("is-hidden");
+      }
+
+      function showTalentScreen() {
+        renderTalentPoints();
+        renderTalentTree();
+        document.getElementById("startScreen").classList.add("is-hidden");
+        document.getElementById("gameApp").classList.add("is-hidden");
+        document.getElementById("settlementScreen").classList.add("is-hidden");
+        document.getElementById("talentScreen").classList.remove("is-hidden");
+      }
+
+      function showStartScreen() {
+        renderTalentPoints();
+        document.getElementById("gameApp").classList.add("is-hidden");
+        document.getElementById("settlementScreen").classList.add("is-hidden");
+        document.getElementById("talentScreen").classList.add("is-hidden");
         document.getElementById("startScreen").classList.remove("is-hidden");
       }
 
@@ -1342,6 +1521,9 @@
           document.getElementById("gameApp").classList.remove("is-hidden");
         }
       });
+      document.getElementById("talentTreeBtn").addEventListener("click", showTalentScreen);
+      document.getElementById("upgradeOpeningCashBtn").addEventListener("click", upgradeOpeningCashTalent);
+      document.getElementById("backFromTalentBtn").addEventListener("click", showStartScreen);
       document.getElementById("backToStartBtn").addEventListener("click", resetToStartPage);
       document.getElementById("resetBtn").addEventListener("click", () => {
         state = createInitialState();

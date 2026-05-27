@@ -1,4 +1,4 @@
-import { Ionicons } from "@expo/vector-icons";
+﻿import { Ionicons } from "@expo/vector-icons";
 import { StatusBar } from "expo-status-bar";
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -11,31 +11,51 @@ import {
   Text,
   View
 } from "react-native";
-import { advanceDay, buyStock, createInitialState, sectorLabel, sellStock, totalEquity, useForesight } from "./src/marketEngine";
-import { loadGameState, resetGameState, saveGameState } from "./src/storage";
-import { GameState, Stock } from "./src/types";
+import {
+  advanceDay,
+  baseInitialAsset,
+  buyStock,
+  calculateTalentPoints,
+  createInitialState,
+  sectorLabel,
+  sellStock,
+  totalEquity,
+  useForesight,
+  withHighestEquity
+} from "./src/marketEngine";
+import { loadGameState, loadTalentProfile, resetGameStateWithCash, saveGameState, saveTalentProfile } from "./src/storage";
+import { GameState, SettlementResult, Stock, TalentProfile } from "./src/types";
 
 type Tab = "market" | "portfolio" | "news";
+type Screen = "start" | "game" | "settlement" | "talent";
 
 const tradeLots = [1, 5, 10];
+const openingCashTalentId = "openingCash";
+const openingCashMaxLevel = 10;
 
 export default function App() {
   const [state, setState] = useState<GameState>();
+  const [talentProfile, setTalentProfile] = useState<TalentProfile>();
+  const [screen, setScreen] = useState<Screen>("start");
   const [selectedId, setSelectedId] = useState("grain-port");
   const [tab, setTab] = useState<Tab>("market");
-  const [message, setMessage] = useState("開市準備中");
+  const [message, setMessage] = useState("??皞?銝?);
 
   useEffect(() => {
-    loadGameState()
-      .then((loaded) => {
-        setState(loaded);
-        setSelectedId(loaded.stocks[0]?.id ?? "grain-port");
-        setMessage("市場資料已從本機 SQLite 載入");
+    Promise.all([loadGameState(), loadTalentProfile()])
+      .then(([loaded, talents]) => {
+        const normalized = normalizeGameState(loaded);
+        setTalentProfile(talents);
+        setState(normalized);
+        setSelectedId(normalized.stocks[0]?.id ?? "grain-port");
+        setMessage("撣鞈?撌脣??祆? SQLite 頛");
       })
       .catch((error) => {
-        setMessage("載入失敗，已建立新市場");
+        setMessage("頛憭望?嚗歇撱箇??啣???);
         console.warn(error);
-        setState(createInitialState());
+        const fallbackTalents = createEmptyTalentProfile();
+        setTalentProfile(fallbackTalents);
+        setState(createInitialState(getStartingCash(fallbackTalents)));
       });
   }, []);
 
@@ -44,30 +64,39 @@ export default function App() {
     saveGameState(state).catch((error) => console.warn("Failed to save game state", error));
   }, [state]);
 
+  useEffect(() => {
+    if (!talentProfile) return;
+    saveTalentProfile(talentProfile).catch((error) => console.warn("Failed to save talent profile", error));
+  }, [talentProfile]);
+
   const selectedStock = useMemo(
     () => state?.stocks.find((stock) => stock.id === selectedId) ?? state?.stocks[0],
     [selectedId, state]
   );
 
-  if (!state || !selectedStock) {
+  if (!state || !selectedStock || !talentProfile) {
     return (
       <SafeAreaView style={styles.loading}>
         <ActivityIndicator color="#1b5b55" />
-        <Text style={styles.loadingText}>讀取市場資料...</Text>
+        <Text style={styles.loadingText}>霈???渲???..</Text>
       </SafeAreaView>
     );
   }
 
   const applyTrade = (action: "buy" | "sell", shares: number) => {
     const result = action === "buy" ? buyStock(state, selectedStock.id, shares) : sellStock(state, selectedStock.id, shares);
-    setState(result.state);
+    setState(withHighestEquity(result.state));
     setMessage(result.message);
   };
 
   const nextDay = () => {
     const next = advanceDay(state);
+    if (next.economy.day >= 30) {
+      finishGame(next);
+      return;
+    }
     setState(next);
-    setMessage(`第 ${next.economy.day} 日開盤，市場已重新定價`);
+    setMessage(`蝚?${next.economy.day} ?仿??歹?撣撌脤??啣??鉑);
   };
 
   const foresight = () => {
@@ -76,29 +105,120 @@ export default function App() {
     setMessage(result.message);
   };
 
+  const finishGame = (nextState: GameState) => {
+    const settledState = withHighestEquity(nextState);
+    const finalEquity = totalEquity(settledState);
+    const result: SettlementResult = {
+      initialAsset: settledState.initialAsset,
+      highestEquity: settledState.highestEquity,
+      finalEquity,
+      talentPoints: calculateTalentPoints(finalEquity, settledState.highestEquity, settledState.initialAsset)
+    };
+    setTalentProfile({
+      ...talentProfile,
+      availablePoints: talentProfile.availablePoints + result.talentPoints,
+      lifetimePoints: talentProfile.lifetimePoints + result.talentPoints
+    });
+    setState({ ...settledState, endResult: result });
+    setScreen("settlement");
+  };
+
+  const startGame = async () => {
+    if (state.endResult) {
+      setScreen("settlement");
+      return;
+    }
+    const startingCash = getStartingCash(talentProfile);
+    if (state.economy.day === 1 && state.holdings.length === 0 && state.initialAsset !== startingCash) {
+      const fresh = await resetGameStateWithCash(startingCash);
+      setState(fresh);
+      setSelectedId(fresh.stocks[0].id);
+    }
+    setScreen("game");
+  };
+
+  const backToStart = async () => {
+    const fresh = await resetGameStateWithCash(getStartingCash(talentProfile));
+    setState(fresh);
+    setSelectedId(fresh.stocks[0].id);
+    setTab("market");
+    setScreen("start");
+  };
+
+  const upgradeOpeningCashTalent = () => {
+    const level = getTalentLevel(talentProfile, openingCashTalentId);
+    if (level >= openingCashMaxLevel) return;
+    const cost = getOpeningCashCost(level);
+    if (talentProfile.availablePoints < cost) return;
+    const nextProfile = {
+      ...talentProfile,
+      availablePoints: talentProfile.availablePoints - cost,
+      talentLevels: {
+        ...talentProfile.talentLevels,
+        [openingCashTalentId]: level + 1
+      }
+    };
+    setTalentProfile(nextProfile);
+    if (state.economy.day === 1 && state.holdings.length === 0 && !state.endResult) {
+      const fresh = createInitialState(getStartingCash(nextProfile));
+      setState(fresh);
+      setSelectedId(fresh.stocks[0].id);
+    }
+  };
+
   const reset = () => {
-    Alert.alert("重置市場", "要重新開始這個市場 demo 嗎？", [
-      { text: "取消", style: "cancel" },
+    Alert.alert("?蔭撣", "閬??圈?憪???demo ??", [
+      { text: "??", style: "cancel" },
       {
-        text: "重置",
+        text: "?蔭",
         style: "destructive",
         onPress: async () => {
-          const fresh = await resetGameState();
+          const fresh = await resetGameStateWithCash(getStartingCash(talentProfile));
           setState(fresh);
           setSelectedId(fresh.stocks[0].id);
-          setMessage("市場已重置");
+          setMessage("撣撌脤?蝵?);
         }
       }
     ]);
   };
+
+  if (screen === "start") {
+    return (
+      <StartScreen
+        availablePoints={talentProfile.availablePoints}
+        onStart={startGame}
+        onTalent={() => setScreen("talent")}
+      />
+    );
+  }
+
+  if (screen === "talent") {
+    return (
+      <TalentScreen
+        profile={talentProfile}
+        onUpgradeOpeningCash={upgradeOpeningCashTalent}
+        onBack={() => setScreen("start")}
+      />
+    );
+  }
+
+  if (screen === "settlement") {
+    return (
+      <SettlementScreen
+        result={state.endResult ?? createSettlementResult(state)}
+        availablePoints={talentProfile.availablePoints}
+        onBackToStart={backToStart}
+      />
+    );
+  }
 
   return (
     <SafeAreaView style={styles.shell}>
       <StatusBar style="dark" />
       <View style={styles.header}>
         <View>
-          <Text style={styles.kicker}>STOCKY 市場 Demo</Text>
-          <Text style={styles.title}>市場</Text>
+          <Text style={styles.kicker}>STOCKY 撣 Demo</Text>
+          <Text style={styles.title}>撣</Text>
         </View>
         <Pressable accessibilityLabel="Reset market" style={styles.iconButton} onPress={reset}>
           <Ionicons name="refresh" size={20} color="#23302f" />
@@ -112,28 +232,28 @@ export default function App() {
       </View>
 
       <View style={styles.economyBand}>
-        <Gauge label="通膨" value={state.economy.inflation} dangerAt={0.08} format={(v) => `${(v * 100).toFixed(1)}%`} />
-        <Gauge label="熱度" value={state.economy.marketHeat} dangerAt={0.75} format={(v) => `${(v * 100).toFixed(0)}%`} />
-        <Gauge label="穩定基金" value={state.economy.stabilityFund / 320} dangerAt={0.15} format={() => `$${state.economy.stabilityFund.toFixed(0)}`} />
+        <Gauge label="Inflation" value={state.economy.inflation} dangerAt={0.08} format={(v) => `${(v * 100).toFixed(1)}%`} />
+        <Gauge label="Heat" value={state.economy.marketHeat} dangerAt={0.75} format={(v) => `${(v * 100).toFixed(0)}%`} />
+        <Gauge label="Stability Fund" value={state.economy.stabilityFund / 320} dangerAt={0.15} format={() => `$${state.economy.stabilityFund.toFixed(0)}`} />
       </View>
 
       <View style={styles.toolbar}>
         <Pressable style={[styles.primaryButton, styles.dayButton]} onPress={nextDay}>
           <Ionicons name="play-forward" size={17} color="#fff" />
-          <Text style={styles.primaryButtonText}>下一日</Text>
+          <Text style={styles.primaryButtonText}>Next Day</Text>
         </Pressable>
         <Pressable style={styles.tokenButton} onPress={foresight}>
           <Ionicons name="sparkles" size={17} color="#5a3612" />
-          <Text style={styles.tokenButtonText}>預知 {state.economy.token}</Text>
+          <Text style={styles.tokenButtonText}>Foresight {state.economy.token}</Text>
         </Pressable>
       </View>
 
       <Text style={styles.message}>{message}</Text>
 
       <View style={styles.tabs}>
-        <TabButton active={tab === "market"} icon="trending-up" label="市場" onPress={() => setTab("market")} />
-        <TabButton active={tab === "portfolio"} icon="wallet" label="資產" onPress={() => setTab("portfolio")} />
-        <TabButton active={tab === "news"} icon="newspaper" label="事件" onPress={() => setTab("news")} />
+        <TabButton active={tab === "market"} icon="trending-up" label="撣" onPress={() => setTab("market")} />
+        <TabButton active={tab === "portfolio"} icon="wallet" label="鞈" onPress={() => setTab("portfolio")} />
+        <TabButton active={tab === "news"} icon="newspaper" label="鈭辣" onPress={() => setTab("news")} />
       </View>
 
       {tab === "market" && (
@@ -151,6 +271,107 @@ export default function App() {
   );
 }
 
+function StartScreen({
+  availablePoints,
+  onStart,
+  onTalent
+}: {
+  availablePoints: number;
+  onStart: () => void;
+  onTalent: () => void;
+}) {
+  return (
+    <SafeAreaView style={styles.menuShell}>
+      <StatusBar style="dark" />
+      <View style={styles.menuPanel}>
+        <Text style={styles.kicker}>STOCKY MARKET DEMO</Text>
+        <Text style={styles.menuTitle}>STOCKY</Text>
+        <Text style={styles.menuCopy}>Trade stocks, read market signals, and grow assets across 30 days.</Text>
+        <Text style={styles.menuPoints}>Talent points: {availablePoints}</Text>
+        <View style={styles.menuActions}>
+          <Pressable style={[styles.primaryButton, styles.menuActionButton]} onPress={onStart}>
+            <Text style={styles.primaryButtonText}>Start Game</Text>
+          </Pressable>
+          <Pressable style={[styles.secondaryButton, styles.menuActionButton]} onPress={onTalent}>
+            <Text style={styles.secondaryButtonText}>Talent Tree</Text>
+          </Pressable>
+        </View>
+      </View>
+    </SafeAreaView>
+  );
+}
+
+function TalentScreen({
+  profile,
+  onUpgradeOpeningCash,
+  onBack
+}: {
+  profile: TalentProfile;
+  onUpgradeOpeningCash: () => void;
+  onBack: () => void;
+}) {
+  const level = getTalentLevel(profile, openingCashTalentId);
+  const cost = getOpeningCashCost(level);
+  const isMaxed = level >= openingCashMaxLevel;
+  const canUpgrade = !isMaxed && profile.availablePoints >= cost;
+
+  return (
+    <SafeAreaView style={styles.menuShell}>
+      <StatusBar style="dark" />
+      <View style={styles.menuPanel}>
+        <Text style={styles.kicker}>TALENT TREE</Text>
+        <Text style={styles.menuHeading}>Talent Tree</Text>
+        <Text style={styles.menuPoints}>Talent points: {profile.availablePoints}</Text>
+
+        <View style={styles.talentCard}>
+          <View style={styles.talentCardText}>
+            <Text style={styles.talentTitle}>Starting Cash</Text>
+            <Text style={styles.menuCopy}>Each level gives +$200 starting cash. Max level 10.</Text>
+            <Text style={styles.talentMeta}>Lv. {level} / {openingCashMaxLevel}</Text>
+            <Text style={styles.talentMeta}>Start bonus +${level * 200}</Text>
+            <Text style={styles.talentMeta}>{isMaxed ? "Max level reached" : `Next level ${cost} pts`}</Text>
+          </View>
+          <Pressable style={[styles.primaryButton, styles.menuActionButton, !canUpgrade && styles.disabledButton]} disabled={!canUpgrade} onPress={onUpgradeOpeningCash}>
+            <Text style={styles.primaryButtonText}>{isMaxed ? "Maxed" : `Upgrade (${cost})`}</Text>
+          </Pressable>
+        </View>
+
+        <Pressable style={styles.secondaryButton} onPress={onBack}>
+          <Text style={styles.secondaryButtonText}>Back to Start</Text>
+        </Pressable>
+      </View>
+    </SafeAreaView>
+  );
+}
+
+function SettlementScreen({
+  result,
+  availablePoints,
+  onBackToStart
+}: {
+  result: SettlementResult;
+  availablePoints: number;
+  onBackToStart: () => void;
+}) {
+  return (
+    <SafeAreaView style={styles.menuShell}>
+      <StatusBar style="dark" />
+      <View style={styles.menuPanel}>
+        <Text style={styles.kicker}>DAY 30 REPORT</Text>
+        <Text style={styles.menuHeading}>Settlement</Text>
+        <View style={styles.settlementGrid}>
+          <Metric label="Highest Equity" value={`$${result.highestEquity.toFixed(0)}`} tone="mint" />
+          <Metric label="Final Equity" value={`$${result.finalEquity.toFixed(0)}`} tone="ink" />
+          <Metric label="Talent Points" value={`${result.talentPoints}`} tone="gold" />
+        </View>
+        <Text style={styles.menuCopy}>Earned {result.talentPoints} talent points. Available points: {availablePoints}.</Text>
+        <Pressable style={[styles.primaryButton, styles.menuActionButton]} onPress={onBackToStart}>
+          <Text style={styles.primaryButtonText}>Back to Start</Text>
+        </Pressable>
+      </View>
+    </SafeAreaView>
+  );
+}
 function MarketView({
   stocks,
   selectedStock,
@@ -187,7 +408,7 @@ function MarketView({
           <View>
             <Text style={styles.stockName}>{selectedStock.name}</Text>
             <Text style={styles.stockMeta}>
-              {selectedStock.code} · {sectorLabel(selectedStock.sector)}
+              {selectedStock.code} 繚 {sectorLabel(selectedStock.sector)}
             </Text>
           </View>
           <View style={[styles.priceBadge, direction === "up" ? styles.priceUp : styles.priceDown]}>
@@ -201,26 +422,26 @@ function MarketView({
         <Text style={styles.description}>{selectedStock.description}</Text>
 
         <View style={styles.depthGrid}>
-          <Depth label="需求" value={selectedStock.demand} color="#1b5b55" />
-          <Depth label="供給" value={selectedStock.supply} color="#9f6a1b" />
-          <Depth label="穩定度" value={selectedStock.stability * 100} color="#47618c" />
-          <Depth label="波動率" value={selectedStock.volatility * 1000} color="#8a4a64" />
+          <Depth label="Demand" value={selectedStock.demand} color="#1b5b55" />
+          <Depth label="Supply" value={selectedStock.supply} color="#9f6a1b" />
+          <Depth label="Stability" value={selectedStock.stability * 100} color="#47618c" />
+          <Depth label="Volatility" value={selectedStock.volatility * 1000} color="#8a4a64" />
         </View>
       </View>
 
       <View style={styles.tradePanel}>
-        <Text style={styles.sectionTitle}>定價買賣</Text>
+        <Text style={styles.sectionTitle}>Trade Lots</Text>
         <View style={styles.tradeRows}>
           {tradeLots.map((lot) => (
             <View key={lot} style={styles.tradeRow}>
-              <Text style={styles.lotText}>{lot} 股</Text>
+              <Text style={styles.lotText}>{lot} shares</Text>
               <Pressable style={styles.buyButton} onPress={() => onTrade("buy", lot)}>
                 <Ionicons name="add" size={18} color="#fff" />
-                <Text style={styles.tradeButtonText}>買</Text>
+                <Text style={styles.tradeButtonText}>Buy</Text>
               </Pressable>
               <Pressable style={styles.sellButton} onPress={() => onTrade("sell", lot)}>
                 <Ionicons name="remove" size={18} color="#fff" />
-                <Text style={styles.tradeButtonText}>賣</Text>
+                <Text style={styles.tradeButtonText}>Sell</Text>
               </Pressable>
             </View>
           ))}
@@ -233,11 +454,11 @@ function MarketView({
 function PortfolioView({ state, onSelect }: { state: GameState; onSelect: (id: string) => void }) {
   return (
     <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-      <Text style={styles.sectionTitle}>持股</Text>
+      <Text style={styles.sectionTitle}>?</Text>
       {state.holdings.length === 0 ? (
         <View style={styles.emptyState}>
           <Ionicons name="file-tray" size={24} color="#7b827e" />
-          <Text style={styles.emptyText}>尚未持有股票</Text>
+          <Text style={styles.emptyText}>撠???∠巨</Text>
         </View>
       ) : (
         state.holdings.map((holding) => {
@@ -250,7 +471,7 @@ function PortfolioView({ state, onSelect }: { state: GameState; onSelect: (id: s
               <View>
                 <Text style={styles.holdingName}>{stock.name}</Text>
                 <Text style={styles.holdingMeta}>
-                  {holding.shares} 股 · 均價 ${holding.averageCost.toFixed(2)}
+                  {holding.shares} ??繚 ? ${holding.averageCost.toFixed(2)}
                 </Text>
               </View>
               <View style={styles.holdingValue}>
@@ -269,7 +490,7 @@ function NewsView({ state }: { state: GameState }) {
   return (
     <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
       <View style={styles.eventPanel}>
-        <Text style={styles.sectionTitle}>市場行情預知</Text>
+        <Text style={styles.sectionTitle}>撣銵??</Text>
         {state.upcomingSignal?.knownByForesight ? (
           <View style={styles.foresightPanel}>
             <Ionicons name="eye" size={21} color="#5a3612" />
@@ -279,11 +500,11 @@ function NewsView({ state }: { state: GameState }) {
             </View>
           </View>
         ) : (
-          <Text style={styles.mutedText}>尚未預知下一個行情。使用代幣可提前看到一次市場訊號。</Text>
+          <Text style={styles.mutedText}>No foresight is active today.</Text>
         )}
       </View>
 
-      <Text style={styles.sectionTitle}>新聞時事</Text>
+      <Text style={styles.sectionTitle}>?啗???</Text>
       {state.news.map((item, index) => (
         <View key={`${item}-${index}`} style={styles.newsRow}>
           <View style={styles.newsDot} />
@@ -341,10 +562,134 @@ function TabButton({ active, icon, label, onPress }: { active: boolean; icon: ke
   );
 }
 
+function createEmptyTalentProfile(): TalentProfile {
+  return { availablePoints: 0, lifetimePoints: 0, talentLevels: {} };
+}
+
+function normalizeGameState(state: GameState): GameState {
+  return withHighestEquity({
+    ...state,
+    initialAsset: state.initialAsset ?? baseInitialAsset,
+    highestEquity: state.highestEquity ?? state.initialAsset ?? baseInitialAsset,
+    endResult: state.endResult ?? null
+  });
+}
+
+function getTalentLevel(profile: TalentProfile, talentId: string): number {
+  return Number(profile.talentLevels[talentId]) || 0;
+}
+
+function getOpeningCashCost(level: number): number {
+  let cost = 20;
+  for (let index = 0; index < level; index += 1) cost = Math.ceil(cost * 1.15);
+  return cost;
+}
+
+function getStartingCash(profile: TalentProfile): number {
+  return baseInitialAsset + getTalentLevel(profile, openingCashTalentId) * 200;
+}
+
+function createSettlementResult(state: GameState): SettlementResult {
+  const settledState = withHighestEquity(state);
+  const finalEquity = totalEquity(settledState);
+  return {
+    initialAsset: settledState.initialAsset,
+    highestEquity: settledState.highestEquity,
+    finalEquity,
+    talentPoints: calculateTalentPoints(finalEquity, settledState.highestEquity, settledState.initialAsset)
+  };
+}
+
 const styles = StyleSheet.create({
   shell: {
     flex: 1,
     backgroundColor: "#f7f3ea"
+  },
+  menuShell: {
+    flex: 1,
+    justifyContent: "center",
+    padding: 18,
+    backgroundColor: "#f7f3ea"
+  },
+  menuPanel: {
+    borderRadius: 8,
+    padding: 24,
+    backgroundColor: "#fffaf0",
+    borderWidth: 1,
+    borderColor: "#e3dac9",
+    gap: 14
+  },
+  menuTitle: {
+    color: "#172321",
+    fontSize: 64,
+    lineHeight: 68,
+    fontWeight: "900"
+  },
+  menuHeading: {
+    color: "#172321",
+    fontSize: 42,
+    lineHeight: 46,
+    fontWeight: "900"
+  },
+  menuCopy: {
+    color: "#52615e",
+    fontSize: 15,
+    lineHeight: 22,
+    fontWeight: "700"
+  },
+  menuPoints: {
+    color: "#9f6a1b",
+    fontSize: 16,
+    fontWeight: "900"
+  },
+  menuActions: {
+    flexDirection: "row",
+    gap: 10
+  },
+  menuActionButton: {
+    flex: 1,
+    paddingHorizontal: 16
+  },
+  secondaryButton: {
+    minHeight: 44,
+    borderRadius: 8,
+    paddingHorizontal: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#e6dfd1"
+  },
+  secondaryButtonText: {
+    color: "#23302f",
+    fontWeight: "900",
+    fontSize: 15
+  },
+  disabledButton: {
+    opacity: 0.55
+  },
+  talentCard: {
+    borderRadius: 8,
+    padding: 14,
+    backgroundColor: "#ffffff",
+    borderWidth: 1,
+    borderColor: "#e3dac9",
+    gap: 14
+  },
+  talentCardText: {
+    gap: 5
+  },
+  talentTitle: {
+    color: "#172321",
+    fontSize: 22,
+    fontWeight: "900"
+  },
+  talentMeta: {
+    color: "#9f6a1b",
+    fontSize: 13,
+    fontWeight: "900"
+  },
+  settlementGrid: {
+    gap: 8
   },
   loading: {
     flex: 1,
