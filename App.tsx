@@ -423,6 +423,9 @@ const styles = StyleSheet.create({
     borderColor: "#e3dac9",
     gap: 10
   },
+  gauge: {
+    width: "100%"
+  },
   gaugeTop: {
     flexDirection: "row",
     justifyContent: "space-between",
