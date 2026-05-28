@@ -295,9 +295,9 @@ export default function App() {
 
       {/* Market Stats Bar */}
       <View style={styles.statsRow}>
-        <Metric label="Day" value={`${state.economy.day}`} tone="ink" />
-        <Metric label="Cash" value={`$${state.economy.cash.toFixed(0)}`} tone="mint" />
-        <Metric label="Equity" value={`$${totalEquity(state).toFixed(0)}`} tone="gold" />
+        <Metric label="日次" value={`${state.economy.day}`} tone="ink" />
+        <Metric label="現金" value={`$${state.economy.cash.toFixed(0)}`} tone="mint" />
+        <Metric label="股權" value={`$${totalEquity(state).toFixed(0)}`} tone="gold" />
       </View>
 
       {/* Economy band */}
