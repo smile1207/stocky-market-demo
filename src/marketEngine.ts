@@ -277,7 +277,9 @@ export function createInitialState(initialCash = baseInitialAsset): GameState {
     isTrading: false,
     isPaused: true,
     gameSpeed: 60,
-    intradayNewsTimes
+    intradayNewsTimes,
+    matchInterval: 30,
+    debugShowFields: false
   };
 }
 
@@ -401,45 +403,52 @@ export function useForesight(state: GameState): TradeResult {
 export function tickMarket(state: GameState): GameState {
   if (!state.isTrading || state.isPaused) return state;
 
-  const nextMinutes = state.currentMinutes + 5;
+  const nextMinutes = state.currentMinutes + 1;
   const isClose = nextMinutes >= 270;
   const minutes = Math.min(270, nextMinutes);
   const timeStr = formatMinutes(minutes);
 
-  let stocks = state.stocks.map((stock) => {
-    // 1. Intraday price fluctuation based on active signals and market state
-    const eventImpact = state.activeSignals.reduce(
-      (sum, event) => sum + (event.sectorImpacts[stock.sector] ?? 0),
-      0
-    );
-    const demandPressure = (stock.demand - stock.supply) / 220;
-    const inflationLift = state.economy.inflation * (stock.sector === "food" || stock.sector === "energy" ? 0.62 : 0.28);
-    const heatLift = (state.economy.marketHeat - 0.45) * stock.volatility;
-    const stabilizer = ((stock.basePrice - stock.price) / stock.basePrice) * stock.stability * 0.08;
+  const matchInterval = state.matchInterval ?? 30;
+  const isMatchMoment = minutes > 0 && minutes % matchInterval === 0;
 
-    // Combined and scaled down by 45 for smooth intraday updates
-    const baseChange = (demandPressure + eventImpact + inflationLift + heatLift + stabilizer) / 45;
-    const randomNoise = (Math.random() - 0.5) * stock.volatility * 0.3; // active intraday fluctuation
+  let stocks = state.stocks;
+  if (isMatchMoment || isClose) {
+    stocks = stocks.map((stock) => {
+      // 1. Intraday price fluctuation based on active signals and market state
+      const eventImpact = state.activeSignals.reduce(
+        (sum, event) => sum + (event.sectorImpacts[stock.sector] ?? 0),
+        0
+      );
+      const demandPressure = (stock.demand - stock.supply) / 220;
+      const inflationLift = state.economy.inflation * (stock.sector === "food" || stock.sector === "energy" ? 0.62 : 0.28);
+      const heatLift = (state.economy.marketHeat - 0.45) * stock.volatility;
+      const stabilizer = ((stock.basePrice - stock.price) / stock.basePrice) * stock.stability * 0.08;
 
-    const change = clamp(baseChange + randomNoise, -0.02, 0.02); // max 2% change per 5 mins
-    const price = roundMoney(clamp(stock.price * (1 + change), stock.basePrice * 0.35, stock.basePrice * 3.2));
+      // Combined and scaled down by 45 for smooth updates
+      const baseChange = (demandPressure + eventImpact + inflationLift + heatLift + stabilizer) / 45;
+      const randomNoise = (Math.random() - 0.5) * stock.volatility * 0.3; // active intraday fluctuation
 
-    // 2. Intraday demand/supply drift
-    const demand = clamp(stock.demand * 0.99 + 0.8, 35, 180);
-    const supply = clamp(stock.supply * 0.99 + 0.9, 30, 180);
+      const change = clamp(baseChange + randomNoise, -0.02, 0.02);
+      const price = roundMoney(clamp(stock.price * (1 + change), stock.basePrice * 0.35, stock.basePrice * 3.2));
 
-    // 3. Increment simulated volume
-    const tickVolume = Math.floor(Math.random() * 8) + (stock.demand > stock.supply ? 5 : 2);
-    const volume = stock.volume + tickVolume;
+      // 2. Intraday demand/supply drift
+      const demand = clamp(stock.demand * 0.99 + 0.8, 35, 180);
+      const supply = clamp(stock.supply * 0.99 + 0.9, 30, 180);
 
-    return {
-      ...stock,
-      price,
-      demand,
-      supply,
-      volume
-    };
-  });
+      // 3. Increment simulated volume
+      const tickVolume = Math.floor(Math.random() * 8) + (stock.demand > stock.supply ? 5 : 2);
+      const volume = stock.volume + tickVolume;
+
+      return {
+        ...stock,
+        price,
+        demand,
+        supply,
+        volume,
+        history: [...stock.history, price]
+      };
+    });
+  }
 
   let newsList = [...state.newsList];
   let activeSignals = [...state.activeSignals];
@@ -469,7 +478,8 @@ export function tickMarket(state: GameState): GameState {
       );
       return {
         ...stock,
-        price
+        price,
+        history: [...stock.history, price]
       };
     });
 
@@ -487,24 +497,28 @@ export function tickMarket(state: GameState): GameState {
 
   const overallPrice = getMarketIndexPrice(stocks);
 
+  let marketHistory = [...state.marketHistory];
+  if (isMatchMoment || isClose) {
+    marketHistory.push(overallPrice);
+  }
+
   let nextState: GameState = {
     ...state,
     stocks,
     activeSignals,
     newsList,
-    currentMinutes: minutes
+    currentMinutes: minutes,
+    marketHistory
   };
+
+  // Auto-pause at match moments (if not close)
+  if (isMatchMoment && !isClose) {
+    nextState.isPaused = true;
+  }
 
   if (isClose) {
     nextState.isTrading = false;
     nextState.isPaused = true;
-    
-    // Append closing prices to history
-    nextState.stocks = nextState.stocks.map((stock) => ({
-      ...stock,
-      history: [...stock.history, stock.price]
-    }));
-    nextState.marketHistory = [...nextState.marketHistory, overallPrice];
 
     // Daily economy transition
     const economy = advanceEconomy(
@@ -698,4 +712,31 @@ function clamp(value: number, min: number, max: number): number {
 function roundMoney(value: number): number {
   return Math.round(value * 100) / 100;
 }
+
+export function skipMatch(state: GameState): GameState {
+  const X = state.matchInterval ?? 30;
+  let nextMatchMinutes = state.currentMinutes + (X - (state.currentMinutes % X));
+  if (nextMatchMinutes === state.currentMinutes) {
+    nextMatchMinutes += X;
+  }
+  nextMatchMinutes = Math.min(270, nextMatchMinutes);
+
+  let curr = { ...state, isPaused: false, isTrading: true };
+  while (curr.currentMinutes < nextMatchMinutes && curr.isTrading) {
+    curr = tickMarket(curr);
+  }
+  if (curr.isTrading) {
+    curr.isPaused = true;
+  }
+  return curr;
+}
+
+export function skipToday(state: GameState): GameState {
+  let curr = { ...state, isPaused: false, isTrading: true };
+  while (curr.isTrading) {
+    curr = tickMarket(curr);
+  }
+  return curr;
+}
+
 

@@ -70,6 +70,8 @@ export type GameState = {
   initialAsset: number;
   highestEquity: number;
   endResult?: SettlementResult | null;
+  matchInterval?: number;
+  debugShowFields?: boolean;
 };
 
 export type TradeResult = {

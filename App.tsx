@@ -10,7 +10,8 @@ import {
   StyleSheet,
   Text,
   View,
-  Platform
+  Platform,
+  TextInput
 } from "react-native";
 import {
   advanceDay,
@@ -25,7 +26,9 @@ import {
   withHighestEquity,
   tickMarket,
   getMarketIndexPrice,
-  formatMinutes
+  formatMinutes,
+  skipMatch,
+  skipToday
 } from "./src/marketEngine";
 import { loadGameState, loadTalentProfile, resetGameStateWithCash, saveGameState, saveTalentProfile } from "./src/storage";
 import { GameState, SettlementResult, Stock, TalentProfile } from "./src/types";
@@ -84,7 +87,7 @@ export default function App() {
   useEffect(() => {
     if (!state || !state.isTrading || state.isPaused) return;
 
-    const intervalTime = Math.round(300000 / state.gameSpeed);
+    const intervalTime = Math.round(60000 / state.gameSpeed);
     const timer = setInterval(() => {
       setState((curr) => {
         if (!curr) return curr;
@@ -227,6 +230,28 @@ export default function App() {
     ]);
   };
 
+  const skipMatchHandler = () => {
+    setState((curr) => {
+      if (!curr) return curr;
+      const next = skipMatch(curr);
+      if (!next.isTrading && curr.isTrading) {
+        setMessage(`第 ${curr.economy.day} 日收盤：通膨 ${(next.economy.inflation * 100).toFixed(1)}%，市場熱度 ${(next.economy.marketHeat * 100).toFixed(0)}%。`);
+      } else {
+        setMessage(`已跳過撮合，進入下一個週期`);
+      }
+      return next;
+    });
+  };
+
+  const skipTodayHandler = () => {
+    setState((curr) => {
+      if (!curr) return curr;
+      const next = skipToday(curr);
+      setMessage(`第 ${curr.economy.day} 日收盤：通膨 ${(next.economy.inflation * 100).toFixed(1)}%，市場熱度 ${(next.economy.marketHeat * 100).toFixed(0)}%。`);
+      return next;
+    });
+  };
+
   if (screen === "start") {
     return (
       <StartScreen
@@ -266,7 +291,12 @@ export default function App() {
       
       {/* 3 tabs in header navigation */}
       <View style={styles.header}>
-        <Text style={styles.headerLogo}>STOCKY</Text>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+          <Text style={styles.headerLogo}>STOCKY</Text>
+          <View style={{ backgroundColor: "#23302f", paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4 }}>
+            <Text style={{ color: "#fff", fontSize: 11, fontWeight: "900" }}>第 {state.economy.day} 日</Text>
+          </View>
+        </View>
         
         <View style={styles.headerTabs}>
           <Pressable style={[styles.headerTabButton, tab === "market" && styles.headerTabActive]} onPress={() => setTab("market")}>
@@ -293,61 +323,11 @@ export default function App() {
         </Text>
       </View>
 
-      {/* Market Stats Bar */}
-      <View style={styles.statsRow}>
-        <Metric label="日次" value={`${state.economy.day}`} tone="ink" />
-        <Metric label="現金" value={`$${state.economy.cash.toFixed(0)}`} tone="mint" />
-        <Metric label="股權" value={`$${totalEquity(state).toFixed(0)}`} tone="gold" />
-      </View>
-
       {/* Economy band */}
       <View style={styles.economyBand}>
         <Gauge label="通膨" value={state.economy.inflation} dangerAt={0.08} format={(v) => `${(v * 100).toFixed(1)}%`} />
         <Gauge label="熱度" value={state.economy.marketHeat} dangerAt={0.75} format={(v) => `${(v * 100).toFixed(0)}%`} />
         <Gauge label="穩定基金" value={state.economy.stabilityFund / 320} dangerAt={0.15} format={() => `$${state.economy.stabilityFund.toFixed(0)}`} />
-      </View>
-
-      {/* Toolbar / Actions depending on game time state */}
-      <View style={styles.toolbar}>
-        {/* Pre-market start button */}
-        {!state.isTrading && state.currentMinutes === 0 ? (
-          <Pressable style={[styles.primaryButton, styles.dayButton, { backgroundColor: "#116647" }]} onPress={startTrading}>
-            <Ionicons name="play" size={17} color="#fff" />
-            <Text style={styles.primaryButtonText}>開始交易 (09:00 開盤)</Text>
-          </Pressable>
-        ) : state.isTrading ? (
-          // Intraday active speed and time indicators
-          <View style={{ flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "space-between", backgroundColor: "#fffaf0", borderWidth: 1, borderColor: "#e3dac9", paddingHorizontal: 12, borderRadius: 8, height: 44 }}>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-              <ActivityIndicator size="small" color="#1b5b55" />
-              <Text style={{ fontWeight: "900", color: "#172321" }}>
-                盤中交易 {formatMinutes(state.currentMinutes)}
-              </Text>
-            </View>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-              <Text style={{ fontSize: 12, color: "#52615e", fontWeight: "700" }}>速度: {state.gameSpeed}x</Text>
-              <Pressable 
-                style={{ paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4, backgroundColor: state.isPaused ? "#116647" : "#963f33" }}
-                onPress={() => setState(curr => curr ? { ...curr, isPaused: !curr.isPaused } : curr)}
-              >
-                <Text style={{ fontSize: 11, color: "#fff", fontWeight: "800" }}>
-                  {state.isPaused ? "播放" : "暫停"}
-                </Text>
-              </Pressable>
-            </View>
-          </View>
-        ) : (
-          // Day closed, wait to advance
-          <Pressable style={[styles.primaryButton, styles.dayButton]} onPress={nextDay}>
-            <Ionicons name="play-forward" size={17} color="#fff" />
-            <Text style={styles.primaryButtonText}>下一日 (Pre-market)</Text>
-          </Pressable>
-        )}
-
-        <Pressable style={styles.tokenButton} onPress={foresight}>
-          <Ionicons name="sparkles" size={17} color="#5a3612" />
-          <Text style={styles.tokenButtonText}>預知 {state.economy.token}</Text>
-        </Pressable>
       </View>
 
       <Text style={styles.message}>{message}</Text>
@@ -358,6 +338,12 @@ export default function App() {
           selectedId={selectedId}
           onSelect={setSelectedId}
           onTrade={applyTrade}
+          onTogglePause={() => setState(curr => curr ? { ...curr, isPaused: !curr.isPaused } : curr)}
+          onStartTrading={startTrading}
+          onNextDay={nextDay}
+          onForesight={foresight}
+          onSkipMatch={skipMatchHandler}
+          onSkipToday={skipTodayHandler}
         />
       )}
       {tab === "portfolio" && (
@@ -418,6 +404,53 @@ export default function App() {
                       </Text>
                     </Pressable>
                   ))}
+                </View>
+              </View>
+
+              <View style={styles.menuSection}>
+                <Text style={styles.menuSectionTitle}>開發者設定</Text>
+                <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginVertical: 4 }}>
+                  <Text style={{ fontSize: 14, fontWeight: "700", color: "#23302f" }}>撮合間隔 (分鐘)</Text>
+                  <TextInput
+                    style={{ 
+                      width: 80, 
+                      height: 36, 
+                      backgroundColor: "#ffffff", 
+                      borderRadius: 6, 
+                      borderWidth: 1, 
+                      borderColor: "#e3dac9", 
+                      textAlign: "center",
+                      fontSize: 14,
+                      fontWeight: "700",
+                      color: "#23302f"
+                    }}
+                    value={String(state.matchInterval ?? 30)}
+                    onChangeText={(val) => {
+                      const minutes = Math.max(1, parseInt(val) || 1);
+                      setState((curr) => curr ? { ...curr, matchInterval: minutes } : curr);
+                    }}
+                    keyboardType="numeric"
+                  />
+                </View>
+                <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginVertical: 4 }}>
+                  <Text style={{ fontSize: 14, fontWeight: "700", color: "#23302f" }}>Debug 顯示欄位</Text>
+                  <Pressable
+                    style={{
+                      width: 50,
+                      height: 28,
+                      borderRadius: 14,
+                      backgroundColor: state.debugShowFields ? "#1b5b55" : "#e6dfd1",
+                      flexDirection: "row",
+                      alignItems: "center",
+                      paddingHorizontal: 3,
+                      justifyContent: state.debugShowFields ? "flex-end" : "flex-start"
+                    }}
+                    onPress={() => {
+                      setState((curr) => curr ? { ...curr, debugShowFields: !curr.debugShowFields } : curr);
+                    }}
+                  >
+                    <View style={{ width: 22, height: 22, borderRadius: 11, backgroundColor: "#ffffff" }} />
+                  </Pressable>
                 </View>
               </View>
 
@@ -635,15 +668,34 @@ function MarketView({
   state,
   selectedId,
   onSelect,
-  onTrade
+  onTrade,
+  onTogglePause,
+  onStartTrading,
+  onNextDay,
+  onForesight,
+  onSkipMatch,
+  onSkipToday
 }: {
   state: GameState;
   selectedId: string;
   onSelect: (id: string) => void;
   onTrade: (action: "buy" | "sell", shares: number) => void;
+  onTogglePause: () => void;
+  onStartTrading: () => void;
+  onNextDay: () => void;
+  onForesight: () => void;
+  onSkipMatch: () => void;
+  onSkipToday: () => void;
 }) {
   const isOverallSelected = selectedId === "overall";
   const selectedStock = isOverallSelected ? null : (state.stocks.find(s => s.id === selectedId) ?? null);
+
+  // Local State for draft transaction quantity (positive: buy, negative: sell)
+  const [tradeShares, setTradeShares] = useState(0);
+
+  useEffect(() => {
+    setTradeShares(0);
+  }, [selectedId]);
 
   // Overall Index calculations
   const indexOpen = getMarketIndexPrice(state.stocks.map(s => ({ ...s, price: s.basePrice })));
@@ -682,7 +734,7 @@ function MarketView({
       }).join(" ");
 
       return (
-        <View style={{ height: 120, width: "100%", marginVertical: 12, backgroundColor: "#ffffff", borderRadius: 8, borderWidth: 1, borderColor: "#e3dac9", overflow: "hidden" }}>
+        <View style={{ height: 100, width: "100%", marginVertical: 8, backgroundColor: "#ffffff", borderRadius: 8, borderWidth: 1, borderColor: "#e3dac9", overflow: "hidden" }}>
           {/* @ts-ignore */}
           <svg width="100%" height="100%" viewBox="0 0 300 120" preserveAspectRatio="none">
             {/* @ts-ignore */}
@@ -720,7 +772,7 @@ function MarketView({
     } else {
       // Native sparkline of vertical bars
       return (
-        <View style={{ height: 120, flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', marginVertical: 12, padding: 8, backgroundColor: "#ffffff", borderRadius: 8, borderWidth: 1, borderColor: "#e3dac9" }}>
+        <View style={{ height: 100, flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', marginVertical: 8, padding: 8, backgroundColor: "#ffffff", borderRadius: 8, borderWidth: 1, borderColor: "#e3dac9" }}>
           {displayPrices.map((p, idx) => {
             const barHeight = ((p - minPrice) / priceRange) * 100 + 10;
             return (
@@ -741,155 +793,281 @@ function MarketView({
     }
   };
 
+  const matchInterval = state.matchInterval ?? 30;
+  const minutesToNextMatch = (matchInterval - (state.currentMinutes % matchInterval)) % matchInterval;
+
+  const holding = selectedStock ? state.holdings.find(h => h.stockId === selectedStock.id) : null;
+  const maxSell = holding ? holding.shares : 0;
+  const maxBuy = selectedStock ? Math.floor(state.economy.cash / (selectedStock.price * 1.006)) : 0;
+
+  const canSubmit = tradeShares !== 0 && (state.currentMinutes === 0 || (state.isTrading && minutesToNextMatch === 0));
+
   return (
-    <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-      {/* Selected Entity Card */}
-      <View style={styles.stockPanel}>
-        <View style={styles.stockPanelTop}>
-          <View>
-            <Text style={styles.stockName}>{name}</Text>
-            <Text style={styles.stockMeta}>
-              {isOverallSelected ? "INDEX · 加權指數" : `${selectedStock?.code} · ${sectorLabel(selectedStock!.sector)}`}
-            </Text>
+    <View style={{ flex: 1 }}>
+      {/* 1. Fixed Top Section: Toolbar & Stock Overview */}
+      <View style={{ backgroundColor: "#f7f3ea", paddingHorizontal: 18, paddingTop: 6 }}>
+        {/* Pre-market / Day closed controls */}
+        {!state.isTrading && state.currentMinutes === 0 ? (
+          <View style={{ flexDirection: "row", gap: 10, marginBottom: 8 }}>
+            <Pressable style={[styles.primaryButton, styles.dayButton, { backgroundColor: "#116647" }]} onPress={onStartTrading}>
+              <Ionicons name="play" size={17} color="#fff" />
+              <Text style={styles.primaryButtonText}>開始交易 (09:00 開盤)</Text>
+            </Pressable>
+            <Pressable style={styles.tokenButton} onPress={onForesight}>
+              <Ionicons name="sparkles" size={17} color="#5a3612" />
+              <Text style={styles.tokenButtonText}>預知 {state.economy.token}</Text>
+            </Pressable>
           </View>
-          <View style={[styles.priceBadge, direction === "up" ? styles.priceUp : styles.priceDown]}>
-            <Ionicons name={direction === "up" ? "arrow-up" : "arrow-down"} size={15} color={direction === "up" ? "#116647" : "#963f33"} />
-            <Text style={[styles.priceBadgeText, direction === "up" ? styles.priceUpText : styles.priceDownText]}>
-              {delta.toFixed(1)}%
-            </Text>
-          </View>
-        </View>
-        
-        <Text style={styles.bigPrice}>${price.toFixed(2)}</Text>
-        
-        {/* Render SVG/Bar Sparkline Chart */}
-        {renderChart()}
-
-        <Text style={styles.description}>{description}</Text>
-
-        {isOverallSelected ? (
-          <View style={styles.depthGrid}>
-            <Depth label="通膨率" value={state.economy.inflation * 500} color="#1b5b55" />
-            <Depth label="市場熱度" value={state.economy.marketHeat * 100} color="#9f6a1b" />
-            <Depth label="穩定基金" value={(state.economy.stabilityFund / 320) * 100} color="#47618c" />
-            <Depth label="今日交易量" value={Math.min(100, (totalVolume / 100) * 100)} color="#8a4a64" />
+        ) : state.isTrading ? (
+          // Intraday controls & time progress banner
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", backgroundColor: "#fffaf0", borderWidth: 1, borderColor: "#e3dac9", paddingHorizontal: 12, borderRadius: 8, height: 44, marginBottom: 8 }}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+              <ActivityIndicator size="small" color="#1b5b55" animating={!state.isPaused} />
+              <Text style={{ fontWeight: "900", color: "#172321", fontSize: 13 }}>
+                盤中 {formatMinutes(state.currentMinutes)}
+              </Text>
+            </View>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+              <Pressable style={styles.skipButton} onPress={onSkipMatch}>
+                <Text style={styles.skipButtonText}>跳過撮合</Text>
+              </Pressable>
+              <Pressable style={styles.skipButton} onPress={onSkipToday}>
+                <Text style={styles.skipButtonText}>跳過今日</Text>
+              </Pressable>
+              
+              <Text style={{ fontSize: 11, color: "#52615e", fontWeight: "700", marginLeft: 2 }}>{state.gameSpeed}x</Text>
+              <Pressable 
+                style={{ paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4, backgroundColor: state.isPaused ? "#116647" : "#963f33" }}
+                onPress={onTogglePause}
+              >
+                <Text style={{ fontSize: 11, color: "#fff", fontWeight: "800" }}>
+                  {state.isPaused ? "播放" : "暫停"}
+                </Text>
+              </Pressable>
+            </View>
           </View>
         ) : (
-          selectedStock && (
-            <View style={styles.depthGrid}>
-              <Depth label="需求" value={selectedStock.demand} color="#1b5b55" />
-              <Depth label="供給" value={selectedStock.supply} color="#9f6a1b" />
-              <Depth label="穩定度" value={selectedStock.stability * 100} color="#47618c" />
-              <Depth label="波動率" value={selectedStock.volatility * 1000} color="#8a4a64" />
+          // Post-market advance control
+          <View style={{ flexDirection: "row", gap: 10, marginBottom: 8 }}>
+            <Pressable style={[styles.primaryButton, styles.dayButton]} onPress={onNextDay}>
+              <Ionicons name="play-forward" size={17} color="#fff" />
+              <Text style={styles.primaryButtonText}>下一日 (Pre-market)</Text>
+            </Pressable>
+            <Pressable style={styles.tokenButton} onPress={onForesight}>
+              <Ionicons name="sparkles" size={17} color="#5a3612" />
+              <Text style={styles.tokenButtonText}>預知 {state.economy.token}</Text>
+            </Pressable>
+          </View>
+        )}
+
+        {/* Selected Entity Card */}
+        <View style={styles.stockPanel}>
+          <View style={styles.stockPanelTop}>
+            <View>
+              <Text style={styles.stockName}>{name}</Text>
+              <Text style={styles.stockMeta}>
+                {isOverallSelected ? "INDEX · 加權指數" : `${selectedStock?.code} · ${sectorLabel(selectedStock!.sector)}`}
+              </Text>
             </View>
-          )
+            <View style={[styles.priceBadge, direction === "up" ? styles.priceUp : styles.priceDown]}>
+              <Ionicons name={direction === "up" ? "arrow-up" : "arrow-down"} size={15} color={direction === "up" ? "#116647" : "#963f33"} />
+              <Text style={[styles.priceBadgeText, direction === "up" ? styles.priceUpText : styles.priceDownText]}>
+                {delta.toFixed(1)}%
+              </Text>
+            </View>
+          </View>
+          
+          <Text style={[styles.bigPrice, { fontSize: 32, marginTop: 4 }]}>${price.toFixed(2)}</Text>
+          
+          {/* Render SVG/Bar Sparkline Chart */}
+          {renderChart()}
+
+          {isOverallSelected ? (
+            <View style={[styles.depthGrid, { marginTop: 4 }]}>
+              <Depth label="通膨率" value={state.economy.inflation * 500} color="#1b5b55" />
+              <Depth label="市場熱度" value={state.economy.marketHeat * 100} color="#9f6a1b" />
+              <Depth label="穩定基金" value={(state.economy.stabilityFund / 320) * 100} color="#47618c" />
+              <Depth label={`今日交易量 (${totalVolume} 股)`} value={Math.min(100, (totalVolume / 100) * 100)} color="#8a4a64" />
+            </View>
+          ) : (
+            selectedStock && (
+              <View style={[styles.depthGrid, { marginTop: 4 }]}>
+                <Depth label={`成交量 (${selectedStock.volume} 股)`} value={Math.min(100, (selectedStock.volume / 100) * 100)} color="#8a4a64" />
+                <Depth label={`今日漲跌 (${delta >= 0 ? "+" : ""}${delta.toFixed(1)}%)`} value={Math.min(100, Math.max(0, 50 + delta * 2.5))} color={delta >= 0 ? "#116647" : "#963f33"} />
+                {state.debugShowFields && (
+                  <>
+                    <Depth label="需求" value={selectedStock.demand} color="#1b5b55" />
+                    <Depth label="供給" value={selectedStock.supply} color="#9f6a1b" />
+                    <Depth label="穩定度" value={selectedStock.stability * 100} color="#47618c" />
+                    <Depth label="波動率" value={selectedStock.volatility * 1000} color="#8a4a64" />
+                  </>
+                )}
+              </View>
+            )
+          )}
+        </View>
+
+        {/* Short Holdings Summary below stock panel */}
+        {!isOverallSelected && holding && (
+          <View style={{ marginTop: 6, padding: 8, borderRadius: 6, backgroundColor: "#fffaf0", borderWidth: 1, borderColor: "#e3dac9", flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+            <Text style={{ fontSize: 12, fontWeight: "800", color: "#52615e" }}>
+              持有：{holding.shares} 股 · 均價：${holding.averageCost.toFixed(2)}
+            </Text>
+            <Text style={{ fontSize: 12, fontWeight: "800", color: "#1b5b55" }}>
+              市值：${(holding.shares * selectedStock!.price).toFixed(1)}
+            </Text>
+          </View>
         )}
       </View>
 
-      {/* Holdings counter below card */}
-      <View style={{ marginTop: 12, padding: 12, borderRadius: 8, backgroundColor: "#fffaf0", borderWidth: 1, borderColor: "#e3dac9" }}>
-        <Text style={{ fontSize: 13, fontWeight: "800", color: "#52615e" }}>持股摘要</Text>
-        {isOverallSelected ? (() => {
-          const totalShares = state.holdings.reduce((sum, h) => sum + h.shares, 0);
-          const totalValue = state.holdings.reduce((sum, h) => {
-            const s = state.stocks.find(stock => stock.id === h.stockId);
-            return sum + (s ? s.price * h.shares : 0);
-          }, 0);
-          return (
-            <View style={{ flexDirection: "row", justifyContent: "space-between", marginTop: 6 }}>
-              <Text style={{ fontWeight: "900", color: "#23302f" }}>持股總數: {totalShares} 股</Text>
-              <Text style={{ fontWeight: "900", color: "#1b5b55" }}>總市值: ${totalValue.toFixed(0)}</Text>
+      {/* 2. Scrollable Selector Section in the Middle */}
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: 18, paddingVertical: 10 }}>
+        <Text style={[styles.sectionTitle, { marginBottom: 8 }]}>選擇標的</Text>
+        <View style={styles.stockList}>
+          {/* Overall market list row */}
+          <Pressable
+            style={[styles.stockListItem, isOverallSelected && styles.stockListItemActive]}
+            onPress={() => onSelect("overall")}
+          >
+            <View>
+              <Text style={[styles.stockListItemName, isOverallSelected && styles.stockListItemActiveText]}>總體市場指數</Text>
+              <Text style={[styles.stockListItemCode, isOverallSelected && styles.stockListItemActiveText]}>INDEX · 全板塊平均</Text>
             </View>
-          );
-        })() : (() => {
-          const holding = state.holdings.find(h => h.stockId === selectedId);
-          if (!holding) return <Text style={{ fontSize: 13, color: "#7b827e", marginTop: 4 }}>尚未持有此股票</Text>;
-          const val = holding.shares * selectedStock!.price;
-          const pnl = ((selectedStock!.price - holding.averageCost) / holding.averageCost) * 100;
-          return (
-            <View style={{ marginTop: 6, gap: 4 }}>
-              <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
-                <Text style={{ fontWeight: "800", color: "#23302f" }}>持有：{holding.shares} 股</Text>
-                <Text style={{ fontWeight: "800", color: "#23302f" }}>市值：${val.toFixed(0)}</Text>
-              </View>
-              <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
-                <Text style={{ fontSize: 12, color: "#52615e", fontWeight: "700" }}>均價：${holding.averageCost.toFixed(2)}</Text>
-                <Text style={[pnl >= 0 ? styles.pnlUp : styles.pnlDown, { marginTop: 0 }]}>損益：{pnl.toFixed(1)}%</Text>
-              </View>
+            <View style={{ alignItems: "flex-end" }}>
+              <Text style={[styles.stockListItemPrice, isOverallSelected && styles.stockListItemActiveText]}>${indexCurrent.toFixed(2)}</Text>
+              <Text style={[styles.stockListItemChange, isOverallSelected ? styles.stockListItemActiveText : (indexDirection === "up" ? styles.pnlUp : styles.pnlDown)]}>
+                {indexDelta >= 0 ? "+" : ""}{indexDelta.toFixed(1)}%
+              </Text>
             </View>
-          );
-        })()}
-      </View>
+          </Pressable>
 
-      {/* Trade panel for stock trading */}
-      {!isOverallSelected && (
-        <View style={styles.tradePanel}>
-          <Text style={styles.sectionTitle}>定價買賣</Text>
-          <View style={styles.tradeRows}>
-            {tradeLots.map((lot) => (
-              <View key={lot} style={styles.tradeRow}>
-                <Text style={styles.lotText}>{lot} 股</Text>
-                <Pressable style={styles.buyButton} onPress={() => onTrade("buy", lot)}>
-                  <Ionicons name="add" size={18} color="#fff" />
-                  <Text style={styles.tradeButtonText}>買</Text>
-                </Pressable>
-                <Pressable style={styles.sellButton} onPress={() => onTrade("sell", lot)}>
-                  <Ionicons name="remove" size={18} color="#fff" />
-                  <Text style={styles.tradeButtonText}>賣</Text>
-                </Pressable>
-              </View>
-            ))}
-          </View>
+          {/* Individual stocks list rows */}
+          {state.stocks.map((stock) => {
+            const isSelected = stock.id === selectedId;
+            const deltaPct = ((stock.price - stock.basePrice) / stock.basePrice) * 100;
+            return (
+              <Pressable
+                key={stock.id}
+                style={[styles.stockListItem, isSelected && styles.stockListItemActive]}
+                onPress={() => onSelect(stock.id)}
+              >
+                <View>
+                  <Text style={[styles.stockListItemName, isSelected && styles.stockListItemActiveText]}>{stock.name}</Text>
+                  <Text style={[styles.stockListItemCode, isSelected && styles.stockListItemActiveText]}>
+                    {stock.code} · {sectorLabel(stock.sector)}
+                  </Text>
+                </View>
+                <View style={{ alignItems: "flex-end" }}>
+                  <Text style={[styles.stockListItemPrice, isSelected && styles.stockListItemActiveText]}>${stock.price.toFixed(2)}</Text>
+                  <Text style={[styles.stockListItemChange, isSelected ? styles.stockListItemActiveText : (deltaPct >= 0 ? styles.pnlUp : styles.pnlDown)]}>
+                    {deltaPct >= 0 ? "+" : ""}{deltaPct.toFixed(1)}%
+                  </Text>
+                </View>
+              </Pressable>
+            );
+          })}
         </View>
-      )}
+      </ScrollView>
 
-      {/* Asset List selection */}
-      <Text style={[styles.sectionTitle, { marginTop: 18, marginBottom: 8 }]}>選擇標的</Text>
-      <View style={styles.stockList}>
-        {/* Overall market list row */}
-        <Pressable
-          style={[styles.stockListItem, isOverallSelected && styles.stockListItemActive]}
-          onPress={() => onSelect("overall")}
-        >
-          <View>
-            <Text style={[styles.stockListItemName, isOverallSelected && styles.stockListItemActiveText]}>總體市場指數</Text>
-            <Text style={[styles.stockListItemCode, isOverallSelected && styles.stockListItemActiveText]}>INDEX · 全板塊平均</Text>
-          </View>
-          <View style={{ alignItems: "flex-end" }}>
-            <Text style={[styles.stockListItemPrice, isOverallSelected && styles.stockListItemActiveText]}>${indexCurrent.toFixed(2)}</Text>
-            <Text style={[styles.stockListItemChange, isOverallSelected ? styles.stockListItemActiveText : (indexDirection === "up" ? styles.pnlUp : styles.pnlDown)]}>
-              {indexDelta >= 0 ? "+" : ""}{indexDelta.toFixed(1)}%
+      {/* 3. Fixed Trade Panel Section at the Bottom */}
+      {!isOverallSelected && selectedStock && (
+        <View style={styles.tradePanelFixed}>
+          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+            <Text style={{ fontSize: 14, fontWeight: "900", color: "#172321" }}>定價買賣</Text>
+            <Text style={{ fontSize: 11, fontWeight: "800", color: (state.currentMinutes === 0 || minutesToNextMatch === 0) ? "#116647" : "#963f33" }}>
+              {state.isTrading
+                ? (minutesToNextMatch === 0 ? "撮合瞬間 (可下單)" : `下次撮合倒數: ${minutesToNextMatch} 分`)
+                : (state.currentMinutes === 0 ? "盤前撮合 (可下單)" : "已收盤")}
             </Text>
           </View>
-        </Pressable>
-
-        {/* Individual stocks list rows */}
-        {state.stocks.map((stock) => {
-          const isSelected = stock.id === selectedId;
-          const deltaPct = ((stock.price - stock.basePrice) / stock.basePrice) * 100;
-          return (
-            <Pressable
-              key={stock.id}
-              style={[styles.stockListItem, isSelected && styles.stockListItemActive]}
-              onPress={() => onSelect(stock.id)}
-            >
-              <View>
-                <Text style={[styles.stockListItemName, isSelected && styles.stockListItemActiveText]}>{stock.name}</Text>
-                <Text style={[styles.stockListItemCode, isSelected && styles.stockListItemActiveText]}>
-                  {stock.code} · {sectorLabel(stock.sector)}
-                </Text>
-              </View>
-              <View style={{ alignItems: "flex-end" }}>
-                <Text style={[styles.stockListItemPrice, isSelected && styles.stockListItemActiveText]}>${stock.price.toFixed(2)}</Text>
-                <Text style={[styles.stockListItemChange, isSelected ? styles.stockListItemActiveText : (deltaPct >= 0 ? styles.pnlUp : styles.pnlDown)]}>
-                  {deltaPct >= 0 ? "+" : ""}{deltaPct.toFixed(1)}%
-                </Text>
-              </View>
-            </Pressable>
-          );
-        })}
-      </View>
-    </ScrollView>
+          
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flex: 1 }}>
+              <Pressable 
+                style={[styles.smallButton, { backgroundColor: "#116647" }]}
+                onPress={() => {
+                  const newShares = tradeShares + 1;
+                  const cost = selectedStock.price * newShares * 1.006;
+                  if (cost > state.economy.cash) return;
+                  setTradeShares(newShares);
+                }}
+              >
+                <Text style={styles.smallButtonText}>+1 股</Text>
+              </Pressable>
+              
+              <Pressable 
+                style={[styles.smallButton, { backgroundColor: "#963f33" }]}
+                onPress={() => {
+                  if (tradeShares - 1 >= -maxSell) {
+                    setTradeShares(tradeShares - 1);
+                  }
+                }}
+              >
+                <Text style={styles.smallButtonText}>-1 股</Text>
+              </Pressable>
+              
+              <Pressable 
+                style={[styles.smallButton, { backgroundColor: "#e6dfd1" }]}
+                onPress={() => {
+                  if (maxBuy > 0) setTradeShares(maxBuy);
+                }}
+              >
+                <Text style={[styles.smallButtonText, { color: "#23302f" }]}>All in</Text>
+              </Pressable>
+              
+              <Pressable 
+                style={[styles.smallButton, { backgroundColor: "#e6dfd1" }]}
+                onPress={() => {
+                  if (maxSell > 0) setTradeShares(-maxSell);
+                }}
+              >
+                <Text style={[styles.smallButtonText, { color: "#23302f" }]}>全賣</Text>
+              </Pressable>
+            </View>
+            
+            <View style={{ alignItems: "flex-end", minWidth: 110 }}>
+              <Text style={{ fontSize: 13, fontWeight: "900", color: tradeShares > 0 ? "#116647" : (tradeShares < 0 ? "#963f33" : "#52615e") }}>
+                {tradeShares > 0 ? `+${tradeShares} 股` : (tradeShares < 0 ? `${tradeShares} 股` : "0 股")}
+              </Text>
+              <Text style={{ fontSize: 9, color: "#7b827e", marginTop: 2 }}>
+                {tradeShares > 0 
+                  ? `預計花費: $${(selectedStock.price * tradeShares * 1.006).toFixed(1)}` 
+                  : (tradeShares < 0 
+                    ? `預計兌現: $${(selectedStock.price * Math.abs(tradeShares) * 0.994).toFixed(1)}` 
+                    : "預計花費: $0.0")}
+              </Text>
+            </View>
+          </View>
+          
+          <Pressable 
+            disabled={!canSubmit}
+            style={[
+              styles.primaryButton, 
+              { marginTop: 8, minHeight: 36 }, 
+              !canSubmit && styles.disabledButton,
+              tradeShares > 0 && { backgroundColor: "#116647" },
+              tradeShares < 0 && { backgroundColor: "#963f33" }
+            ]}
+            onPress={() => {
+              if (tradeShares > 0) {
+                onTrade("buy", tradeShares);
+              } else if (tradeShares < 0) {
+                onTrade("sell", Math.abs(tradeShares));
+              }
+              setTradeShares(0);
+            }}
+          >
+            <Text style={styles.primaryButtonText}>
+              {tradeShares > 0 
+                ? "確認買入" 
+                : (tradeShares < 0 
+                  ? "確認賣出" 
+                  : (state.isTrading && minutesToNextMatch > 0 ? "撮合倒數中 (暫停下單)" : "請選擇股數"))}
+            </Text>
+          </Pressable>
+        </View>
+      )}
+    </View>
   );
 }
 
@@ -904,6 +1082,15 @@ function PortfolioView({
 }) {
   return (
     <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <View style={{ marginBottom: 18 }}>
+        <Text style={styles.sectionTitle}>資產總覽</Text>
+        <View style={{ flexDirection: "row", gap: 8, marginBottom: 8 }}>
+          <Metric label="現金" value={`$${state.economy.cash.toFixed(1)}`} tone="mint" />
+          <Metric label="股權" value={`$${totalEquity(state).toFixed(1)}`} tone="gold" />
+        </View>
+        <Metric label="總資產" value={`$${(state.economy.cash + totalEquity(state)).toFixed(1)}`} tone="ink" />
+      </View>
+
       <Text style={styles.sectionTitle}>持股清單</Text>
       {state.holdings.length === 0 ? (
         <View style={styles.emptyState}>
@@ -1044,7 +1231,9 @@ function normalizeGameState(state: GameState): GameState {
     isTrading: state.isTrading ?? false,
     isPaused: state.isPaused ?? true,
     gameSpeed: state.gameSpeed ?? 60,
-    intradayNewsTimes: state.intradayNewsTimes ?? []
+    intradayNewsTimes: state.intradayNewsTimes ?? [],
+    matchInterval: state.matchInterval ?? 30,
+    debugShowFields: state.debugShowFields ?? false
   });
   
   // Fill default histories
@@ -1472,6 +1661,39 @@ const styles = StyleSheet.create({
   },
   tradePanel: {
     marginTop: 12
+  },
+  tradePanelFixed: {
+    backgroundColor: "#fffaf0",
+    borderTopWidth: 1,
+    borderTopColor: "#e3dac9",
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+  },
+  smallButton: {
+    height: 32,
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    alignItems: "center",
+    justifyContent: "center",
+    flex: 1
+  },
+  smallButtonText: {
+    fontSize: 12,
+    fontWeight: "900",
+    color: "#fff"
+  },
+  skipButton: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 4,
+    backgroundColor: "#e6dfd1",
+    borderWidth: 1,
+    borderColor: "#e3dac9"
+  },
+  skipButtonText: {
+    fontSize: 11,
+    color: "#23302f",
+    fontWeight: "800"
   },
   sectionTitle: {
     color: "#172321",
