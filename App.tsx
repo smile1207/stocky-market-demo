@@ -231,25 +231,21 @@ export default function App() {
   };
 
   const skipMatchHandler = () => {
-    setState((curr) => {
-      if (!curr) return curr;
-      const next = skipMatch(curr);
-      if (!next.isTrading && curr.isTrading) {
-        setMessage(`第 ${curr.economy.day} 日收盤：通膨 ${(next.economy.inflation * 100).toFixed(1)}%，市場熱度 ${(next.economy.marketHeat * 100).toFixed(0)}%。`);
-      } else {
-        setMessage(`已跳過撮合，進入下一個週期`);
-      }
-      return next;
-    });
+    const next = skipMatch(state);
+    setState(next);
+    if (!next.isTrading && state.isTrading) {
+      setMessage(`第 ${state.economy.day} 日收盤：通膨 ${(next.economy.inflation * 100).toFixed(1)}%，市場熱度 ${(next.economy.marketHeat * 100).toFixed(0)}%。`);
+    } else if (next !== state) {
+      setMessage(`已跳過撮合，進入下一個週期`);
+    }
   };
 
   const skipTodayHandler = () => {
-    setState((curr) => {
-      if (!curr) return curr;
-      const next = skipToday(curr);
-      setMessage(`第 ${curr.economy.day} 日收盤：通膨 ${(next.economy.inflation * 100).toFixed(1)}%，市場熱度 ${(next.economy.marketHeat * 100).toFixed(0)}%。`);
-      return next;
-    });
+    const next = skipToday(state);
+    setState(next);
+    if (next !== state) {
+      setMessage(`第 ${state.economy.day} 日收盤：通膨 ${(next.economy.inflation * 100).toFixed(1)}%，市場熱度 ${(next.economy.marketHeat * 100).toFixed(0)}%。`);
+    }
   };
 
   if (screen === "start") {

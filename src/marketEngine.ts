@@ -408,7 +408,7 @@ export function tickMarket(state: GameState): GameState {
   const minutes = Math.min(270, nextMinutes);
   const timeStr = formatMinutes(minutes);
 
-  const matchInterval = state.matchInterval ?? 30;
+  const matchInterval = getSafeMatchInterval(state.matchInterval);
   const isMatchMoment = minutes > 0 && minutes % matchInterval === 0;
 
   let stocks = state.stocks;
@@ -714,7 +714,12 @@ function roundMoney(value: number): number {
 }
 
 export function skipMatch(state: GameState): GameState {
-  const X = state.matchInterval ?? 30;
+  if (!state.isTrading) return state;
+  if (state.currentMinutes >= 270) {
+    return { ...state, currentMinutes: 270, isTrading: false, isPaused: true };
+  }
+
+  const X = getSafeMatchInterval(state.matchInterval);
   let nextMatchMinutes = state.currentMinutes + (X - (state.currentMinutes % X));
   if (nextMatchMinutes === state.currentMinutes) {
     nextMatchMinutes += X;
@@ -732,11 +737,19 @@ export function skipMatch(state: GameState): GameState {
 }
 
 export function skipToday(state: GameState): GameState {
+  if (!state.isTrading) return state;
   let curr = { ...state, isPaused: false, isTrading: true };
-  while (curr.isTrading) {
+  let remainingTicks = 271 - curr.currentMinutes;
+  while (curr.isTrading && remainingTicks > 0) {
     curr = tickMarket(curr);
+    if (curr.isTrading) {
+      curr = { ...curr, isPaused: false };
+    }
+    remainingTicks -= 1;
   }
   return curr;
 }
 
-
+function getSafeMatchInterval(value: number | undefined): number {
+  return Number.isFinite(value) && value && value > 0 ? Math.floor(value) : 30;
+}
