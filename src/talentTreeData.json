@@ -1,0 +1,76 @@
+{
+  "nodes": [
+    {
+      "id": "base",
+      "name": "Base",
+      "x": 120,
+      "y": 310,
+      "maxLevel": 1,
+      "cost": 0,
+      "growth": 1,
+      "description": "Base node is already unlocked."
+    },
+    {
+      "id": "openingCash",
+      "name": "Cash",
+      "x": 338,
+      "y": 312,
+      "maxLevel": 10,
+      "cost": 20,
+      "growth": 1.15,
+      "description": "Each level adds +$200 starting cash."
+    },
+    {
+      "id": "talentA",
+      "name": "A",
+      "x": 590,
+      "y": 210,
+      "maxLevel": 1,
+      "cost": 25,
+      "growth": 1,
+      "description": "這不是Ｂ"
+    },
+    {
+      "id": "talentB",
+      "name": "B",
+      "x": 590,
+      "y": 410,
+      "maxLevel": 1,
+      "cost": 25,
+      "growth": 1,
+      "description": "這不是Ａ"
+    },
+    {
+      "id": "talent5",
+      "name": "最後倖存者",
+      "x": 262,
+      "y": 78,
+      "maxLevel": 70,
+      "cost": 100,
+      "growth": 1.25,
+      "description": "讓你能多活一天"
+    }
+  ],
+  "prerequisites": [
+    {
+      "from": "base",
+      "to": "openingCash",
+      "minLevel": 1
+    },
+    {
+      "from": "openingCash",
+      "to": "talentA",
+      "minLevel": 1
+    },
+    {
+      "from": "openingCash",
+      "to": "talentB",
+      "minLevel": 1
+    },
+    {
+      "from": "base",
+      "to": "talent5",
+      "minLevel": 1
+    }
+  ]
+}

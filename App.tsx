@@ -31,14 +31,14 @@ import {
   skipToday
 } from "./src/marketEngine";
 import { loadGameState, loadTalentProfile, resetGameStateWithCash, saveGameState, saveTalentProfile } from "./src/storage";
+import { getTalentLevel, openingCashTalentId } from "./src/talents";
 import { GameState, SettlementResult, Stock, TalentProfile } from "./src/types";
+import { TalentScreen } from "./src/screens/TalentScreen";
 
 type Tab = "market" | "portfolio" | "news";
 type Screen = "start" | "game" | "settlement" | "talent";
 
 const tradeLots = [1, 5, 10];
-const openingCashTalentId = "openingCash";
-const openingCashMaxLevel = 10;
 
 export default function App() {
   const [state, setState] = useState<GameState>();
@@ -192,18 +192,30 @@ export default function App() {
     setScreen("start");
   };
 
-  const upgradeOpeningCashTalent = () => {
-    const level = getTalentLevel(talentProfile, openingCashTalentId);
-    if (level >= openingCashMaxLevel) return;
-    const cost = getOpeningCashCost(level);
-    if (talentProfile.availablePoints < cost) return;
+  const upgradeTalent = (talentId: string, cost: number, maxLevel: number) => {
+    const level = getTalentLevel(talentProfile, talentId);
+    if (level >= maxLevel || talentProfile.availablePoints < cost) return;
     const nextProfile = {
       ...talentProfile,
       availablePoints: talentProfile.availablePoints - cost,
       talentLevels: {
         ...talentProfile.talentLevels,
-        [openingCashTalentId]: level + 1
+        [talentId]: level + 1
       }
+    };
+    setTalentProfile(nextProfile);
+    if (talentId === openingCashTalentId && state.economy.day === 1 && state.holdings.length === 0 && !state.endResult) {
+      const fresh = createInitialState(getStartingCash(nextProfile));
+      setState(fresh);
+      setSelectedId("overall");
+    }
+  };
+
+  const resetTalents = () => {
+    const nextProfile = {
+      ...talentProfile,
+      availablePoints: talentProfile.lifetimePoints,
+      talentLevels: {}
     };
     setTalentProfile(nextProfile);
     if (state.economy.day === 1 && state.holdings.length === 0 && !state.endResult) {
@@ -265,7 +277,8 @@ export default function App() {
     return (
       <TalentScreen
         profile={talentProfile}
-        onUpgradeOpeningCash={upgradeOpeningCashTalent}
+        onUpgradeTalent={upgradeTalent}
+        onResetTalents={resetTalents}
         onBack={() => setScreen(talentFromScreen)}
       />
     );
@@ -583,49 +596,6 @@ function StartScreen({
             <Text style={styles.secondaryButtonText}>Talent Tree</Text>
           </Pressable>
         </View>
-      </View>
-    </SafeAreaView>
-  );
-}
-
-function TalentScreen({
-  profile,
-  onUpgradeOpeningCash,
-  onBack
-}: {
-  profile: TalentProfile;
-  onUpgradeOpeningCash: () => void;
-  onBack: () => void;
-}) {
-  const level = getTalentLevel(profile, openingCashTalentId);
-  const cost = getOpeningCashCost(level);
-  const isMaxed = level >= openingCashMaxLevel;
-  const canUpgrade = !isMaxed && profile.availablePoints >= cost;
-
-  return (
-    <SafeAreaView style={styles.menuShell}>
-      <StatusBar style="dark" />
-      <View style={styles.menuPanel}>
-        <Text style={styles.kicker}>TALENT TREE</Text>
-        <Text style={styles.menuHeading}>Talent Tree</Text>
-        <Text style={styles.menuPoints}>Talent points: {profile.availablePoints}</Text>
-
-        <View style={styles.talentCard}>
-          <View style={styles.talentCardText}>
-            <Text style={styles.talentTitle}>Starting Cash</Text>
-            <Text style={styles.menuCopy}>Each level gives +$200 starting cash. Max level 10.</Text>
-            <Text style={styles.talentMeta}>Lv. {level} / {openingCashMaxLevel}</Text>
-            <Text style={styles.talentMeta}>Start bonus +${level * 200}</Text>
-            <Text style={styles.talentMeta}>{isMaxed ? "Max level reached" : `Next level ${cost} pts`}</Text>
-          </View>
-          <Pressable style={[styles.primaryButton, styles.menuActionButton, !canUpgrade && styles.disabledButton]} disabled={!canUpgrade} onPress={onUpgradeOpeningCash}>
-            <Text style={styles.primaryButtonText}>{isMaxed ? "Maxed" : `Upgrade (${cost})`}</Text>
-          </Pressable>
-        </View>
-
-        <Pressable style={styles.secondaryButton} onPress={onBack}>
-          <Text style={styles.secondaryButtonText}>Back</Text>
-        </Pressable>
       </View>
     </SafeAreaView>
   );
@@ -1076,15 +1046,21 @@ function PortfolioView({
   onSelect: (id: string) => void;
   onQuickSell: (id: string) => void;
 }) {
+  const holdingEquity = state.holdings.reduce((sum, holding) => {
+    const stock = state.stocks.find((item) => item.id === holding.stockId);
+    return sum + (stock ? stock.price * holding.shares : 0);
+  }, 0);
+  const totalAsset = state.economy.cash + holdingEquity;
+
   return (
     <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
       <View style={{ marginBottom: 18 }}>
         <Text style={styles.sectionTitle}>資產總覽</Text>
         <View style={{ flexDirection: "row", gap: 8, marginBottom: 8 }}>
           <Metric label="現金" value={`$${state.economy.cash.toFixed(1)}`} tone="mint" />
-          <Metric label="股權" value={`$${totalEquity(state).toFixed(1)}`} tone="gold" />
+          <Metric label="股權" value={`$${holdingEquity.toFixed(1)}`} tone="gold" />
         </View>
-        <Metric label="總資產" value={`$${(state.economy.cash + totalEquity(state)).toFixed(1)}`} tone="ink" />
+        <Metric label="總資產" value={`$${totalAsset.toFixed(1)}`} tone="ink" />
       </View>
 
       <Text style={styles.sectionTitle}>持股清單</Text>
@@ -1242,16 +1218,6 @@ function normalizeGameState(state: GameState): GameState {
   return normState;
 }
 
-function getTalentLevel(profile: TalentProfile, talentId: string): number {
-  return Number(profile.talentLevels[talentId]) || 0;
-}
-
-function getOpeningCashCost(level: number): number {
-  let cost = 20;
-  for (let index = 0; index < level; index += 1) cost = Math.ceil(cost * 1.15);
-  return cost;
-}
-
 function getStartingCash(profile: TalentProfile): number {
   return baseInitialAsset + getTalentLevel(profile, openingCashTalentId) * 200;
 }
@@ -1333,27 +1299,6 @@ const styles = StyleSheet.create({
   },
   disabledButton: {
     opacity: 0.55
-  },
-  talentCard: {
-    borderRadius: 8,
-    padding: 14,
-    backgroundColor: "#ffffff",
-    borderWidth: 1,
-    borderColor: "#e3dac9",
-    gap: 14
-  },
-  talentCardText: {
-    gap: 5
-  },
-  talentTitle: {
-    color: "#172321",
-    fontSize: 22,
-    fontWeight: "900"
-  },
-  talentMeta: {
-    color: "#9f6a1b",
-    fontSize: 13,
-    fontWeight: "900"
   },
   settlementGrid: {
     gap: 8

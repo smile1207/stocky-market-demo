@@ -1,0 +1,605 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Talent Tree Editor</title>
+    <style>
+      :root {
+        --ink: #172321;
+        --muted: #52615e;
+        --paper: #fffaf0;
+        --sand: #f7f3ea;
+        --line: #d2c6b2;
+        --green: #116647;
+        --gold: #c58a2c;
+        --red: #963f33;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        color: var(--ink);
+        background: var(--sand);
+      }
+
+      .app {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 340px;
+        min-height: 100vh;
+      }
+
+      .workspace {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+      }
+
+      .topbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 14px 18px;
+        border-bottom: 1px solid var(--line);
+        background: var(--paper);
+      }
+
+      h1 {
+        margin: 0;
+        font-size: 20px;
+        line-height: 24px;
+      }
+
+      .toolbar {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+
+      button {
+        min-height: 36px;
+        border: 0;
+        border-radius: 8px;
+        padding: 0 12px;
+        color: #fff;
+        background: var(--ink);
+        font-weight: 800;
+        cursor: pointer;
+      }
+
+      button.secondary {
+        color: var(--ink);
+        background: #e6dfd1;
+      }
+
+      button.danger {
+        background: var(--red);
+      }
+
+      .canvasWrap {
+        flex: 1;
+        overflow: auto;
+        padding: 24px;
+      }
+
+      .canvas {
+        position: relative;
+        width: 1400px;
+        height: 820px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background:
+          linear-gradient(rgba(210, 198, 178, 0.32) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(210, 198, 178, 0.32) 1px, transparent 1px),
+          #fffdf8;
+        background-size: 32px 32px;
+      }
+
+      svg.links {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        pointer-events: none;
+      }
+
+      .node {
+        position: absolute;
+        width: 132px;
+        min-height: 92px;
+        border: 2px solid var(--line);
+        border-radius: 8px;
+        padding: 10px;
+        background: #fff;
+        box-shadow: 0 6px 18px rgba(23, 35, 33, 0.08);
+        cursor: grab;
+        user-select: none;
+        touch-action: none;
+      }
+
+      .node:active {
+        cursor: grabbing;
+      }
+
+      .node.selected {
+        border-color: var(--ink);
+        box-shadow: 0 0 0 3px rgba(23, 35, 33, 0.12);
+      }
+
+      .node .name {
+        font-size: 15px;
+        font-weight: 900;
+      }
+
+      .node .meta {
+        margin-top: 4px;
+        color: var(--gold);
+        font-size: 12px;
+        font-weight: 800;
+      }
+
+      .node .desc {
+        margin-top: 6px;
+        color: var(--muted);
+        font-size: 11px;
+        line-height: 15px;
+      }
+
+      aside {
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+        padding: 18px;
+        border-left: 1px solid var(--line);
+        background: var(--paper);
+      }
+
+      .panel {
+        display: grid;
+        gap: 10px;
+      }
+
+      label {
+        display: grid;
+        gap: 5px;
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 800;
+      }
+
+      input,
+      textarea,
+      select {
+        width: 100%;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 9px 10px;
+        color: var(--ink);
+        background: #fff;
+        font: inherit;
+      }
+
+      textarea {
+        min-height: 86px;
+        resize: vertical;
+      }
+
+      .row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+      }
+
+      pre {
+        min-height: 180px;
+        max-height: 280px;
+        overflow: auto;
+        margin: 0;
+        padding: 12px;
+        border-radius: 8px;
+        color: #f7f3ea;
+        background: #172321;
+        font-size: 12px;
+        white-space: pre-wrap;
+      }
+
+      .hint {
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 18px;
+      }
+
+      @media (max-width: 900px) {
+        .app {
+          grid-template-columns: 1fr;
+        }
+
+        aside {
+          border-left: 0;
+          border-top: 1px solid var(--line);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="app">
+      <main class="workspace">
+        <div class="topbar">
+          <div>
+            <h1>Talent Tree Editor</h1>
+            <div class="hint">拖曳節點調整位置；選擇 From/To 後建立先後關係；下載後覆蓋 src/talentTreeData.json。</div>
+          </div>
+          <div class="toolbar">
+            <button class="secondary" id="loadJson">載入 JSON</button>
+            <input id="jsonFile" type="file" accept="application/json,.json" hidden />
+            <button id="addNode">新增 Node</button>
+            <button class="secondary" id="exportJson">更新預覽</button>
+            <button class="secondary" id="copyJson">複製 JSON</button>
+            <button id="downloadJson">下載 JSON</button>
+          </div>
+        </div>
+
+        <div class="canvasWrap">
+          <div class="canvas" id="canvas">
+            <svg class="links" id="links"></svg>
+          </div>
+        </div>
+      </main>
+
+      <aside>
+        <section class="panel">
+          <h2 style="margin:0;font-size:16px">Selected Node</h2>
+          <label>
+            ID
+            <input id="nodeId" />
+          </label>
+          <label>
+            Name
+            <input id="nodeName" />
+          </label>
+          <div class="row">
+            <label>
+              Max Level
+              <input id="nodeMaxLevel" type="number" min="1" />
+            </label>
+            <label>
+              Cost
+              <input id="nodeCost" type="number" min="0" />
+            </label>
+          </div>
+          <label>
+            Cost Growth Per Level
+            <input id="nodeGrowth" type="number" min="0.01" step="0.01" />
+          </label>
+          <label>
+            Description
+            <textarea id="nodeDescription"></textarea>
+          </label>
+          <button id="saveNode">套用 Node</button>
+          <button class="danger" id="deleteNode">刪除 Node</button>
+        </section>
+
+        <section class="panel">
+          <h2 style="margin:0;font-size:16px">Prerequisite Link</h2>
+          <label>
+            From
+            <select id="fromNode"></select>
+          </label>
+          <label>
+            To
+            <select id="toNode"></select>
+          </label>
+          <label>
+            Required From Level
+            <input id="linkMinLevel" type="number" min="1" value="1" />
+          </label>
+          <button id="addLink">建立先後關係</button>
+          <button class="secondary" id="removeLink">移除先後關係</button>
+        </section>
+
+        <section class="panel">
+          <h2 style="margin:0;font-size:16px">Export</h2>
+          <div class="hint" id="exportStatus">輸出檔名：talentTreeData.json。覆蓋 src/talentTreeData.json 後，demo 才會更新。</div>
+          <pre id="output"></pre>
+        </section>
+      </aside>
+    </div>
+
+    <script>
+      const state = {
+        selectedId: "base",
+        nodes: [
+          { id: "base", name: "Base", x: 120, y: 310, maxLevel: 1, cost: 0, growth: 1, description: "Base node is already unlocked." },
+          { id: "openingCash", name: "Cash", x: 340, y: 310, maxLevel: 10, cost: 20, growth: 1.15, description: "Each level adds +$200 starting cash." },
+          { id: "talentA", name: "A", x: 590, y: 210, maxLevel: 1, cost: 25, growth: 1, description: "這不是Ｂ" },
+          { id: "talentB", name: "B", x: 590, y: 410, maxLevel: 1, cost: 25, growth: 1, description: "這不是Ａ" },
+          { id: "talent5", name: "最後倖存者", x: 262, y: 78, maxLevel: 70, cost: 100, growth: 1.1, description: "讓你能多活一天" }
+        ],
+        links: [
+          { from: "base", to: "openingCash", minLevel: 1 },
+          { from: "openingCash", to: "talentA", minLevel: 1 },
+          { from: "openingCash", to: "talentB", minLevel: 1 },
+          { from: "base", to: "talent5", minLevel: 1 }
+        ]
+      };
+
+      const canvas = document.getElementById("canvas");
+      const linksSvg = document.getElementById("links");
+      const output = document.getElementById("output");
+      const fields = {
+        id: document.getElementById("nodeId"),
+        name: document.getElementById("nodeName"),
+        maxLevel: document.getElementById("nodeMaxLevel"),
+        cost: document.getElementById("nodeCost"),
+        growth: document.getElementById("nodeGrowth"),
+        description: document.getElementById("nodeDescription"),
+        from: document.getElementById("fromNode"),
+        to: document.getElementById("toNode"),
+        minLevel: document.getElementById("linkMinLevel")
+      };
+
+      function selectedNode() {
+        return state.nodes.find((node) => node.id === state.selectedId) || state.nodes[0];
+      }
+
+      function render() {
+        canvas.querySelectorAll(".node").forEach((node) => node.remove());
+        linksSvg.replaceChildren();
+
+        state.links.forEach((link) => {
+          const from = state.nodes.find((node) => node.id === link.from);
+          const to = state.nodes.find((node) => node.id === link.to);
+          if (!from || !to) return;
+
+          const line = document.createElementNS("http://www.w3.org/2000/svg", "path");
+          const x1 = from.x + 132;
+          const y1 = from.y + 46;
+          const x2 = to.x;
+          const y2 = to.y + 46;
+          const mid = Math.max(40, Math.abs(x2 - x1) / 2);
+          line.setAttribute("d", `M ${x1} ${y1} C ${x1 + mid} ${y1}, ${x2 - mid} ${y2}, ${x2} ${y2}`);
+          line.setAttribute("fill", "none");
+          line.setAttribute("stroke", "#116647");
+          line.setAttribute("stroke-width", "4");
+          linksSvg.appendChild(line);
+        });
+
+        state.nodes.forEach((node) => {
+          const el = document.createElement("div");
+          el.className = `node ${node.id === state.selectedId ? "selected" : ""}`;
+          el.style.left = `${node.x}px`;
+          el.style.top = `${node.y}px`;
+          el.dataset.id = node.id;
+          el.innerHTML = `
+            <div class="name">${escapeHtml(node.name)}</div>
+            <div class="meta">Lv ${node.maxLevel} · ${node.cost} pts · x${normalGrowth(node.growth)}</div>
+            <div class="desc">${escapeHtml(node.description)}</div>
+          `;
+          el.addEventListener("pointerdown", startDrag);
+          el.addEventListener("click", () => selectNode(node.id));
+          canvas.appendChild(el);
+        });
+
+        syncFields();
+        syncSelects();
+        writeOutput();
+      }
+
+      function startDrag(event) {
+        const id = event.currentTarget.dataset.id;
+        const node = state.nodes.find((item) => item.id === id);
+        if (!node) return;
+
+        state.selectedId = id;
+        const startX = event.clientX;
+        const startY = event.clientY;
+        const originalX = node.x;
+        const originalY = node.y;
+        event.currentTarget.setPointerCapture(event.pointerId);
+
+        const move = (moveEvent) => {
+          node.x = Math.max(0, Math.round(originalX + moveEvent.clientX - startX));
+          node.y = Math.max(0, Math.round(originalY + moveEvent.clientY - startY));
+          render();
+        };
+        const up = () => {
+          window.removeEventListener("pointermove", move);
+          window.removeEventListener("pointerup", up);
+        };
+
+        window.addEventListener("pointermove", move);
+        window.addEventListener("pointerup", up);
+      }
+
+      function selectNode(id) {
+        state.selectedId = id;
+        render();
+      }
+
+      function syncFields() {
+        const node = selectedNode();
+        fields.id.value = node.id;
+        fields.name.value = node.name;
+        fields.maxLevel.value = node.maxLevel;
+        fields.cost.value = node.cost;
+        fields.growth.value = normalGrowth(node.growth);
+        fields.description.value = node.description;
+      }
+
+      function syncSelects() {
+        const html = state.nodes.map((node) => `<option value="${node.id}">${node.name} (${node.id})</option>`).join("");
+        fields.from.innerHTML = html;
+        fields.to.innerHTML = html;
+      }
+
+      function saveNode() {
+        const node = selectedNode();
+        const oldId = node.id;
+        const nextId = fields.id.value.trim();
+        if (!nextId) return;
+
+        node.id = nextId;
+        node.name = fields.name.value.trim() || nextId;
+        node.maxLevel = Math.max(1, Number(fields.maxLevel.value) || 1);
+        node.cost = Math.max(0, Number(fields.cost.value) || 0);
+        node.growth = Math.max(0.01, Number(fields.growth.value) || 1);
+        node.description = fields.description.value;
+        state.links.forEach((link) => {
+          if (link.from === oldId) link.from = nextId;
+          if (link.to === oldId) link.to = nextId;
+        });
+        state.selectedId = nextId;
+        render();
+      }
+
+      function addNode() {
+        const id = uniqueId("talent");
+        state.nodes.push({
+          id,
+          name: "New Talent",
+          x: 760,
+          y: 310,
+          maxLevel: 1,
+          cost: 25,
+          growth: 1,
+          description: "技能說明"
+        });
+        state.selectedId = id;
+        render();
+      }
+
+      function deleteNode() {
+        if (state.nodes.length <= 1) return;
+        const id = state.selectedId;
+        state.nodes = state.nodes.filter((node) => node.id !== id);
+        state.links = state.links.filter((link) => link.from !== id && link.to !== id);
+        state.selectedId = state.nodes[0].id;
+        render();
+      }
+
+      function addLink() {
+        const from = fields.from.value;
+        const to = fields.to.value;
+        const minLevel = Math.max(1, Number(fields.minLevel.value) || 1);
+        if (from === to) return;
+        const existing = state.links.find((link) => link.from === from && link.to === to);
+        if (existing) {
+          existing.minLevel = minLevel;
+        } else {
+          state.links.push({ from, to, minLevel });
+        }
+        render();
+      }
+
+      function removeLink() {
+        const from = fields.from.value;
+        const to = fields.to.value;
+        state.links = state.links.filter((link) => !(link.from === from && link.to === to));
+        render();
+      }
+
+      function getExportJson() {
+        return JSON.stringify(
+          {
+            nodes: state.nodes,
+            prerequisites: state.links
+          },
+          null,
+          2
+        );
+      }
+
+      function writeOutput(message = "JSON preview updated.") {
+        output.textContent = getExportJson();
+        document.getElementById("exportStatus").textContent =
+          `${message} Save/replace this as src/talentTreeData.json, then refresh the demo.`;
+      }
+
+      async function copyJson() {
+        const json = getExportJson();
+        try {
+          await navigator.clipboard.writeText(json);
+          writeOutput("JSON copied.");
+        } catch (error) {
+          writeOutput("Copy failed; manually select the JSON below.");
+        }
+      }
+
+      function downloadJson() {
+        const blob = new Blob([getExportJson() + "\n"], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = "talentTreeData.json";
+        link.click();
+        URL.revokeObjectURL(url);
+        writeOutput("Downloaded talentTreeData.json.");
+      }
+
+      function loadJsonFile(event) {
+        const file = event.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = () => {
+          try {
+            const parsed = JSON.parse(String(reader.result));
+            if (!Array.isArray(parsed.nodes) || !Array.isArray(parsed.prerequisites)) {
+              throw new Error("Invalid talent tree JSON");
+            }
+            state.nodes = parsed.nodes.map((node) => ({
+              ...node,
+              growth: normalGrowth(node.growth)
+            }));
+            state.links = parsed.prerequisites.map((link) => ({
+              ...link,
+              minLevel: Math.max(1, Number(link.minLevel) || 1)
+            }));
+            state.selectedId = state.nodes[0]?.id ?? "base";
+            render();
+            writeOutput("Loaded JSON.");
+          } catch (error) {
+            document.getElementById("exportStatus").textContent = "JSON 載入失敗，請確認格式。";
+          }
+        };
+        reader.readAsText(file);
+        event.target.value = "";
+      }
+
+      function uniqueId(prefix) {
+        let index = state.nodes.length + 1;
+        while (state.nodes.some((node) => node.id === `${prefix}${index}`)) index += 1;
+        return `${prefix}${index}`;
+      }
+
+      function normalGrowth(value) {
+        return Math.max(0.01, Number(value) || 1);
+      }
+
+      function escapeHtml(value) {
+        return String(value)
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;");
+      }
+
+      document.getElementById("loadJson").addEventListener("click", () => document.getElementById("jsonFile").click());
+      document.getElementById("jsonFile").addEventListener("change", loadJsonFile);
+      document.getElementById("addNode").addEventListener("click", addNode);
+      document.getElementById("exportJson").addEventListener("click", writeOutput);
+      document.getElementById("copyJson").addEventListener("click", copyJson);
+      document.getElementById("downloadJson").addEventListener("click", downloadJson);
+      document.getElementById("saveNode").addEventListener("click", saveNode);
+      document.getElementById("deleteNode").addEventListener("click", deleteNode);
+      document.getElementById("addLink").addEventListener("click", addLink);
+      document.getElementById("removeLink").addEventListener("click", removeLink);
+
+      render();
+    </script>
+  </body>
+</html>
