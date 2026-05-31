@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { StatusBar } from "expo-status-bar";
-import { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -35,7 +35,7 @@ import { getTalentLevel, openingCashTalentId } from "./src/talents";
 import { GameState, SettlementResult, Stock, TalentProfile } from "./src/types";
 import { TalentScreen } from "./src/screens/TalentScreen";
 
-type Tab = "market" | "portfolio" | "news";
+type Tab = "market" | "portfolio" | "news" | "labor";
 type Screen = "start" | "game" | "settlement" | "talent";
 
 const tradeLots = [1, 5, 10];
@@ -260,6 +260,20 @@ export default function App() {
     }
   };
 
+  const completeLabor = () => {
+    setState((curr) => {
+      if (!curr) return curr;
+      return {
+        ...curr,
+        economy: {
+          ...curr.economy,
+          cash: Math.round((curr.economy.cash + 7.5) * 100) / 100
+        }
+      };
+    });
+    setMessage("勞動完成：獲得 $7.5。");
+  };
+
   if (screen === "start") {
     return (
       <StartScreen
@@ -317,6 +331,9 @@ export default function App() {
           <Pressable style={[styles.headerTabButton, tab === "news" && styles.headerTabActive]} onPress={() => setTab("news")}>
             <Text style={[styles.headerTabLabel, tab === "news" && styles.headerTabActiveLabel]}>事件</Text>
           </Pressable>
+          <Pressable style={[styles.headerTabButton, tab === "labor" && styles.headerTabActive]} onPress={() => setTab("labor")}>
+            <Text style={[styles.headerTabLabel, tab === "labor" && styles.headerTabActiveLabel]}>勞動</Text>
+          </Pressable>
         </View>
 
         <Pressable accessibilityLabel="Open menu" style={styles.iconButton} onPress={() => setIsMenuOpen(true)}>
@@ -363,6 +380,7 @@ export default function App() {
         />
       )}
       {tab === "news" && <NewsView state={state} />}
+      {tab === "labor" && <LaborView onComplete={completeLabor} />}
 
       {/* Menu Overlay */}
       {isMenuOpen && (
@@ -1149,6 +1167,57 @@ function NewsView({ state }: { state: GameState }) {
   );
 }
 
+function LaborView({ onComplete }: { onComplete: () => void }) {
+  const [completedCount, setCompletedCount] = useState(0);
+  const videoPath =
+    Platform.OS === "web" && typeof window !== "undefined" && window.location.pathname.startsWith("/stocky-market-demo")
+      ? "/stocky-market-demo/labor-video.mov"
+      : "/labor-video.mov";
+
+  const handleEnded = () => {
+    setCompletedCount((count) => count + 1);
+    onComplete();
+  };
+
+  return (
+    <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <View style={styles.laborPanel}>
+        <View style={styles.laborHeader}>
+          <View>
+            <Text style={styles.sectionTitle}>勞動</Text>
+            <Text style={styles.mutedText}>看完影片即可獲得 $7.5。</Text>
+          </View>
+          <View style={styles.laborRewardBadge}>
+            <Text style={styles.laborRewardText}>+$7.5</Text>
+          </View>
+        </View>
+
+        {Platform.OS === "web" ? (
+          React.createElement("video", {
+            src: videoPath,
+            controls: true,
+            playsInline: true,
+            style: {
+              width: "100%",
+              maxHeight: 520,
+              borderRadius: 8,
+              backgroundColor: "#172321"
+            },
+            onEnded: handleEnded
+          })
+        ) : (
+          <View style={styles.emptyState}>
+            <Ionicons name="videocam" size={28} color="#8a4a64" />
+            <Text style={styles.emptyText}>手機版影片播放需要接入 expo-av；目前網頁版可播放。</Text>
+          </View>
+        )}
+
+        <Text style={styles.laborHint}>本次已完成 {completedCount} 次勞動。</Text>
+      </View>
+    </ScrollView>
+  );
+}
+
 function Metric({ label, value, tone }: { label: string; value: string; tone: "ink" | "mint" | "gold" }) {
   const toneStyle = tone === "ink" ? styles.inkMetric : tone === "mint" ? styles.mintMetric : styles.goldMetric;
 
@@ -1805,6 +1874,36 @@ const styles = StyleSheet.create({
     color: "#23302f",
     fontSize: 14,
     lineHeight: 20,
+    fontWeight: "700"
+  },
+  laborPanel: {
+    borderRadius: 8,
+    padding: 16,
+    backgroundColor: "#fffaf0",
+    borderWidth: 1,
+    borderColor: "#e3dac9",
+    gap: 14
+  },
+  laborHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    gap: 12
+  },
+  laborRewardBadge: {
+    borderRadius: 8,
+    backgroundColor: "#d8efe2",
+    paddingHorizontal: 14,
+    paddingVertical: 8
+  },
+  laborRewardText: {
+    color: "#116647",
+    fontSize: 16,
+    fontWeight: "900"
+  },
+  laborHint: {
+    color: "#52615e",
+    fontSize: 13,
     fontWeight: "700"
   },
   
