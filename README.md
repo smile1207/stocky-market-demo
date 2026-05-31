@@ -2,16 +2,10 @@
 
 React Native (Expo) + TypeScript + SQLite single-player demo for the STOCKY market slice.
 
-## Demo Scope
+## IndexHtml
 
-- 負責人：盧北
-- 手機單機市場 loop
-- 定價買賣系統：玩家可用固定手數買賣股票，成交會立即影響供給、需求和價格
-- 經濟穩定與防通膨機制：每日結算時通膨、熱度、穩定基金共同影響價格
-- 市場行情訊號：先用市場內建訊號測試不同產業、通膨和市場熱度的變化
-- 代幣預知：花費代幣提前看到下一個市場行情
-- SQLite：遊戲狀態儲存在本機 `game_state` 表
-
+- Demo縮網址
+  
 ## First Numbers
 
 - 起始現金：1200
