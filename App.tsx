@@ -31,7 +31,7 @@ import {
   skipToday
 } from "./src/marketEngine";
 import { loadGameState, loadTalentProfile, resetGameStateWithCash, saveGameState, saveTalentProfile } from "./src/storage";
-import { getTalentLevel, openingCashTalentId } from "./src/talents";
+import { getDailyCashIncome, getMaxPlayableDay, getTalentLevel, openingCashTalentId } from "./src/talents";
 import { GameState, SettlementResult, Stock, TalentProfile } from "./src/types";
 import { TalentScreen } from "./src/screens/TalentScreen";
 
@@ -136,14 +136,21 @@ export default function App() {
   };
 
   const nextDay = () => {
-    const next = advanceDay(state);
-    if (next.economy.day >= 30) {
-      finishGame(next);
+    const maxPlayableDay = getMaxPlayableDay(talentProfile);
+    if (state.economy.day >= maxPlayableDay) {
+      finishGame(state);
       return;
     }
+
+    const next = applyDailyTalentIncome(advanceDay(state), talentProfile);
     setState(next);
     setSelectedId("overall");
-    setMessage(`第 ${next.economy.day} 日開盤，市場已重新定價（盤前準備中）`);
+    const dailyIncome = getDailyCashIncome(talentProfile, state.economy.cash);
+    const incomeText =
+      dailyIncome.totalIncome > 0
+        ? ` 天賦收入 +$${dailyIncome.totalIncome.toFixed(1)}。`
+        : "";
+    setMessage(`第 ${next.economy.day} 日開盤，市場已重新定價（盤前準備中）。${incomeText}`);
   };
 
   const foresight = () => {
@@ -1261,11 +1268,23 @@ function createEmptyTalentProfile(): TalentProfile {
 }
 
 function normalizeGameState(state: GameState): GameState {
+  const fallback = createInitialState(baseInitialAsset);
+  if (!state || !state.economy || !Array.isArray(state.stocks)) {
+    return fallback;
+  }
+
   const normState = withHighestEquity({
     ...state,
+    economy: {
+      ...fallback.economy,
+      ...state.economy
+    },
     initialAsset: state.initialAsset ?? baseInitialAsset,
     highestEquity: state.highestEquity ?? state.initialAsset ?? baseInitialAsset,
     endResult: state.endResult ?? null,
+    holdings: Array.isArray(state.holdings) ? state.holdings : [],
+    activeSignals: Array.isArray(state.activeSignals) ? state.activeSignals : [],
+    news: Array.isArray(state.news) ? state.news : [],
     newsList: state.newsList ?? [],
     marketHistory: state.marketHistory ?? [getMarketIndexPrice(state.stocks ?? [])],
     currentMinutes: state.currentMinutes ?? 0,
@@ -1285,6 +1304,34 @@ function normalizeGameState(state: GameState): GameState {
   }));
 
   return normState;
+}
+
+function applyDailyTalentIncome(state: GameState, profile: TalentProfile): GameState {
+  const income = getDailyCashIncome(profile, state.economy.cash);
+  if (income.totalIncome <= 0) return state;
+
+  const cash = Math.round((state.economy.cash + income.totalIncome) * 100) / 100;
+  const incomeParts = [
+    income.flatIncome > 0 ? `啃老族 +$${income.flatIncome.toFixed(1)}` : "",
+    income.interestIncome > 0 ? `利息 +$${income.interestIncome.toFixed(1)}` : ""
+  ].filter(Boolean);
+  const text = `第 ${state.economy.day} 日天賦收入：${incomeParts.join("，")}。`;
+  const newsItem = {
+    id: `talent-income-${state.economy.day}`,
+    text,
+    day: state.economy.day,
+    time: "盤前"
+  };
+
+  return withHighestEquity({
+    ...state,
+    economy: {
+      ...state.economy,
+      cash
+    },
+    news: [text, ...state.news].slice(0, 12),
+    newsList: [newsItem, ...state.newsList]
+  });
 }
 
 function getStartingCash(profile: TalentProfile): number {
