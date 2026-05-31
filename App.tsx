@@ -31,12 +31,7 @@ import {
   skipToday
 } from "./src/marketEngine";
 import { loadGameState, loadTalentProfile, resetGameStateWithCash, saveGameState, saveTalentProfile } from "./src/storage";
-import {
-  getMaxPlayableDay,
-  getStartingCash as getTalentStartingCash,
-  getTalentLevel,
-  openingCashTalentId
-} from "./src/talents";
+import { getTalentLevel, openingCashTalentId } from "./src/talents";
 import { GameState, SettlementResult, Stock, TalentProfile } from "./src/types";
 import { TalentScreen } from "./src/screens/TalentScreen";
 
@@ -96,7 +91,7 @@ export default function App() {
     const timer = setInterval(() => {
       setState((curr) => {
         if (!curr) return curr;
-        const next = tickMarket(curr, talentProfile);
+        const next = tickMarket(curr);
         // Alert when day closed
         if (!next.isTrading && curr.isTrading) {
           setMessage(`第 ${curr.economy.day} 日收盤：通膨 ${(next.economy.inflation * 100).toFixed(1)}%，市場熱度 ${(next.economy.marketHeat * 100).toFixed(0)}%。`);
@@ -106,7 +101,7 @@ export default function App() {
     }, intervalTime);
 
     return () => clearInterval(timer);
-  }, [state?.isTrading, state?.isPaused, state?.gameSpeed, talentProfile]);
+  }, [state?.isTrading, state?.isPaused, state?.gameSpeed]);
 
   const selectedStock = useMemo(
     () => selectedId === "overall" ? null : (state?.stocks.find((stock) => stock.id === selectedId) ?? null),
@@ -123,10 +118,7 @@ export default function App() {
   }
 
   const applyTrade = (action: "buy" | "sell", shares: number, stockId = selectedId) => {
-    const result =
-      action === "buy"
-        ? buyStock(state, stockId, shares, talentProfile)
-        : sellStock(state, stockId, shares, talentProfile);
+    const result = action === "buy" ? buyStock(state, stockId, shares) : sellStock(state, stockId, shares);
     setState(withHighestEquity(result.state));
     setMessage(result.message);
   };
@@ -144,8 +136,8 @@ export default function App() {
   };
 
   const nextDay = () => {
-    const next = advanceDay(state, talentProfile);
-    if (next.economy.day >= getMaxPlayableDay(talentProfile)) {
+    const next = advanceDay(state);
+    if (next.economy.day >= 30) {
       finishGame(next);
       return;
     }
@@ -167,7 +159,7 @@ export default function App() {
       initialAsset: settledState.initialAsset,
       highestEquity: settledState.highestEquity,
       finalEquity,
-      talentPoints: calculateTalentPoints(finalEquity, settledState.highestEquity, settledState.initialAsset, talentProfile)
+      talentPoints: calculateTalentPoints(finalEquity, settledState.highestEquity, settledState.initialAsset)
     };
     setTalentProfile({
       ...talentProfile,
@@ -251,7 +243,7 @@ export default function App() {
   };
 
   const skipMatchHandler = () => {
-    const next = skipMatch(state, talentProfile);
+    const next = skipMatch(state);
     setState(next);
     if (!next.isTrading && state.isTrading) {
       setMessage(`第 ${state.economy.day} 日收盤：通膨 ${(next.economy.inflation * 100).toFixed(1)}%，市場熱度 ${(next.economy.marketHeat * 100).toFixed(0)}%。`);
@@ -261,7 +253,7 @@ export default function App() {
   };
 
   const skipTodayHandler = () => {
-    const next = skipToday(state, talentProfile);
+    const next = skipToday(state);
     setState(next);
     if (next !== state) {
       setMessage(`第 ${state.economy.day} 日收盤：通膨 ${(next.economy.inflation * 100).toFixed(1)}%，市場熱度 ${(next.economy.marketHeat * 100).toFixed(0)}%。`);
@@ -295,7 +287,7 @@ export default function App() {
   if (screen === "settlement") {
     return (
       <SettlementScreen
-        result={state.endResult ?? createSettlementResult(state, talentProfile)}
+        result={state.endResult ?? createSettlementResult(state)}
         availablePoints={talentProfile.availablePoints}
         onBackToStart={backToStart}
       />
@@ -777,7 +769,7 @@ function MarketView({
   const canSubmit = tradeShares !== 0 && (state.currentMinutes === 0 || (state.isTrading && minutesToNextMatch === 0));
 
   return (
-    <View style={{ flex: 1 }}>
+    <ScrollView style={styles.marketScroll} contentContainerStyle={styles.marketScrollContent}>
       {/* 1. Fixed Top Section: Toolbar & Stock Overview */}
       <View style={{ backgroundColor: "#f7f3ea", paddingHorizontal: 18, paddingTop: 6 }}>
         {/* Pre-market / Day closed controls */}
@@ -895,7 +887,7 @@ function MarketView({
       </View>
 
       {/* 2. Scrollable Selector Section in the Middle */}
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: 18, paddingVertical: 10 }}>
+      <View style={{ paddingHorizontal: 18, paddingVertical: 10 }}>
         <Text style={[styles.sectionTitle, { marginBottom: 8 }]}>選擇標的</Text>
         <View style={styles.stockList}>
           {/* Overall market list row */}
@@ -941,7 +933,7 @@ function MarketView({
             );
           })}
         </View>
-      </ScrollView>
+      </View>
 
       {/* 3. Fixed Trade Panel Section at the Bottom */}
       {!isOverallSelected && selectedStock && (
@@ -1041,7 +1033,7 @@ function MarketView({
           </Pressable>
         </View>
       )}
-    </View>
+    </ScrollView>
   );
 }
 
@@ -1227,17 +1219,17 @@ function normalizeGameState(state: GameState): GameState {
 }
 
 function getStartingCash(profile: TalentProfile): number {
-  return getTalentStartingCash(baseInitialAsset, profile);
+  return baseInitialAsset + getTalentLevel(profile, openingCashTalentId) * 200;
 }
 
-function createSettlementResult(state: GameState, profile?: TalentProfile): SettlementResult {
+function createSettlementResult(state: GameState): SettlementResult {
   const settledState = withHighestEquity(state);
   const finalEquity = totalEquity(settledState);
   return {
     initialAsset: settledState.initialAsset,
     highestEquity: settledState.highestEquity,
     finalEquity,
-    talentPoints: calculateTalentPoints(finalEquity, settledState.highestEquity, settledState.initialAsset, profile)
+    talentPoints: calculateTalentPoints(finalEquity, settledState.highestEquity, settledState.initialAsset)
   };
 }
 
@@ -1521,6 +1513,12 @@ const styles = StyleSheet.create({
   content: {
     paddingHorizontal: 18,
     paddingTop: 12,
+    paddingBottom: 26
+  },
+  marketScroll: {
+    flex: 1
+  },
+  marketScrollContent: {
     paddingBottom: 26
   },
   stockPanel: {
