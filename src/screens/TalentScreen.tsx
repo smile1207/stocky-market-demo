@@ -61,14 +61,14 @@ export function TalentScreen({
 
   const getPrerequisiteText = (talentId: string) => {
     const incoming = prerequisites.filter((link) => link.to === talentId);
-    if (incoming.length === 0) return "Prerequisite locked";
+    if (incoming.length === 0) return "前置條件未解鎖";
     const text = incoming
       .map((link) => {
         const from = talentNodes.find((talent) => talent.id === link.from);
-        return `${from?.name ?? link.from} Lv. ${link.minLevel ?? 1}`;
+        return `${from?.name ?? link.from} 等級 ${link.minLevel ?? 1}`;
       })
       .join(", ");
-    return `Requires ${text}`;
+    return `需要 ${text}`;
   };
 
   const selectedTalent = talentNodes.find((talent) => talent.id === selectedTalentId) ?? talentNodes[0];
@@ -84,18 +84,18 @@ export function TalentScreen({
   const canvasWidth = Math.max(...talentNodes.map((talent) => displayX(talent) + nodeSize + canvasPadding));
   const canvasHeight = Math.max(...talentNodes.map((talent) => displayY(talent) + nodeSize + 34 + canvasPadding));
   const selectedTalentName = selectedTalent.name;
-  const selectedTalentDescription = `${selectedTalent.description} Current Lv. ${selectedLevel}/${selectedTalent.maxLevel}. ${getTalentEffectSummary(selectedTalent.id, selectedLevel)}`;
+  const selectedTalentDescription = `${selectedTalent.description}目前等級 ${selectedLevel}/${selectedTalent.maxLevel}。${getTalentEffectSummary(selectedTalent.id, selectedLevel)}`;
 
   const selectedTalentStatus =
     selectedTalentId === "base"
-      ? "Unlocked"
+      ? "已解鎖"
       : !selectedPrerequisiteMet
         ? getPrerequisiteText(selectedTalentId)
         : selectedMaxed
-          ? "Maxed"
+          ? "已達上限"
           : selectedCanUpgrade
-            ? `Click again to upgrade (${selectedCost} pts)`
-            : `Need ${selectedCost} pts`;
+            ? `再次點擊升級（${selectedCost} 點）`
+            : `需要 ${selectedCost} 點`;
 
   const selectOrUpgradeTalent = (talentId: string) => {
     if (selectedTalentId !== talentId) {
@@ -112,9 +112,9 @@ export function TalentScreen({
     <SafeAreaView style={styles.menuShell}>
       <StatusBar style="dark" />
       <View style={styles.menuPanel}>
-        <Text style={styles.kicker}>TALENT TREE</Text>
-        <Text style={styles.menuHeading}>Talent Tree</Text>
-        <Text style={styles.menuPoints}>Talent points: {profile.availablePoints}</Text>
+        <Text style={styles.kicker}>天賦樹</Text>
+        <Text style={styles.menuHeading}>天賦樹</Text>
+        <Text style={styles.menuPoints}>可用天賦點：{profile.availablePoints}</Text>
 
         <View style={styles.talentSummary}>
           <View>
@@ -187,19 +187,19 @@ export function TalentScreen({
         </ScrollView>
 
         <View style={styles.talentStats}>
-          <Text style={styles.talentMeta}>Selected Lv. {selectedLevel} / {selectedTalent.maxLevel}</Text>
-          <Text style={styles.talentMeta}>Start bonus +${getOpeningCashBonus(profile)}</Text>
-          <Text style={styles.talentMeta}>Max day {getMaxPlayableDay(profile)}</Text>
-          <Text style={styles.talentMeta}>{selectedMaxed ? "Max level reached" : `Next node costs ${selectedCost} pts`}</Text>
+          <Text style={styles.talentMeta}>目前等級 {selectedLevel} / {selectedTalent.maxLevel}</Text>
+          <Text style={styles.talentMeta}>開局加成 +${getOpeningCashBonus(profile)}</Text>
+          <Text style={styles.talentMeta}>最多遊玩 {getMaxPlayableDay(profile)} 日</Text>
+          <Text style={styles.talentMeta}>{selectedMaxed ? "已達最高等級" : `下次升級消耗 ${selectedCost} 點`}</Text>
         </View>
 
         <View style={styles.talentActions}>
           <Pressable style={[styles.secondaryButton, styles.menuActionButton]} onPress={onResetTalents}>
             <Ionicons name="refresh" size={17} color="#23302f" />
-            <Text style={styles.secondaryButtonText}>Reset Talents</Text>
+            <Text style={styles.secondaryButtonText}>重置天賦</Text>
           </Pressable>
           <Pressable style={[styles.secondaryButton, styles.menuActionButton]} onPress={onBack}>
-            <Text style={styles.secondaryButtonText}>Back</Text>
+            <Text style={styles.secondaryButtonText}>返回</Text>
           </Pressable>
         </View>
       </View>
@@ -253,15 +253,15 @@ function getNodeIcon(id: string, unlocked: boolean, locked: boolean): keyof type
 }
 
 function getNodeCaption(talent: TalentTreeNode, level: number): string {
-  if (talent.id === "base") return "Start";
+  if (talent.id === "base") return "起點";
   if (talent.id === "openingCash") return `$+${level * 200}`;
-  if (talent.id === "talentA") return `$+${level * 100}/day`;
-  if (talent.id === "talentB") return level > 0 ? `Stop ${80 + level}%` : "No stop";
-  if (talent.id === "talent5") return `+${level} days`;
-  if (talent.id === "talent6") return `${level}% cash/day`;
-  if (talent.id === "talent7") return `Formula ${100 + level}%`;
-  if (talent.maxLevel > 1) return `Lv ${level}/${talent.maxLevel}`;
-  return level > 0 ? "Lv 1" : `${getUpgradeCost(talent, level)} pts`;
+  if (talent.id === "talentA") return `$+${level * 100}/日`;
+  if (talent.id === "talentB") return level > 0 ? `停損 ${80 + level}%` : "無停損";
+  if (talent.id === "talent5") return `+${level} 日`;
+  if (talent.id === "talent6") return `${level}% 現金/日`;
+  if (talent.id === "talent7") return `公式 ${100 + level}%`;
+  if (talent.maxLevel > 1) return `等級 ${level}/${talent.maxLevel}`;
+  return level > 0 ? "等級 1" : `${getUpgradeCost(talent, level)} 點`;
 }
 
 function getUpgradeCost(talent: TalentTreeNode, level: number): number {

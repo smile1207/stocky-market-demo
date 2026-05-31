@@ -95,18 +95,18 @@ export function getPriceFormulaLevel(profile: TalentProfile | undefined): number
 export function getTalentEffectSummary(talentId: string, level: number): string {
   switch (talentId) {
     case openingCashTalentId:
-      return `Starting cash +$${level * 200}`;
+      return `開局經費 +$${level * 200}`;
     case branchTalentAId:
-      return `Daily passive income +$${level * 100}`;
+      return `每日被動收入 +$${level * 100}`;
     case branchTalentBId:
-      return level > 0 ? `Auto sell below ${80 + level}% cost` : "Auto sell inactive";
+      return level > 0 ? `低於成本 ${80 + level}% 時自動停損` : "尚未啟用停損";
     case survivalTalentId:
-      return `Game length +${level} days`;
+      return `增加 +${level} 天時長`;
     case momentumTalentId:
-      return `Daily interest +${level}% current cash`;
+      return `每日獲得 +${level}% 利息`;
     case settlementTalentId:
-      return level > 0 ? `Price formula factor x${100 + level}%` : "Base price formula";
+      return level > 0 ? `價格公式倍率 ${100 + level}%` : "基礎價格公式";
     default:
-      return level > 0 ? `Lv ${level}` : "No active effect";
+      return level > 0 ? `等級 ${level}` : "尚無啟用效果";
   }
 }

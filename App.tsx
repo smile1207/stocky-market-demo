@@ -315,7 +315,7 @@ export default function App() {
       {/* 3 tabs in header navigation */}
       <View style={styles.header}>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-          <Text style={styles.headerLogo}>STOCKY</Text>
+          <Text style={styles.headerLogo}>OuRollStocky </Text>
           <View style={{ backgroundColor: "#23302f", paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4 }}>
             <Text style={{ color: "#fff", fontSize: 11, fontWeight: "900" }}>第 {state.economy.day} 日</Text>
           </View>
@@ -336,7 +336,7 @@ export default function App() {
           </Pressable>
         </View>
 
-        <Pressable accessibilityLabel="Open menu" style={styles.iconButton} onPress={() => setIsMenuOpen(true)}>
+        <Pressable accessibilityLabel="開啟選單" style={styles.iconButton} onPress={() => setIsMenuOpen(true)}>
           <Ionicons name="menu" size={22} color="#23302f" />
         </Pressable>
       </View>
@@ -406,7 +406,7 @@ export default function App() {
                 >
                   <Ionicons name={state.isPaused ? "play" : "pause"} size={18} color="#fff" />
                   <Text style={styles.primaryButtonText}>
-                    {state.isPaused ? "恢復交易 (Resume)" : "暫停交易 (Pause)"}
+                    {state.isPaused ? "恢復交易" : "暫停交易"}
                   </Text>
                 </Pressable>
               </View>
@@ -460,7 +460,7 @@ export default function App() {
                   />
                 </View>
                 <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginVertical: 4 }}>
-                  <Text style={{ fontSize: 14, fontWeight: "700", color: "#23302f" }}>Debug 顯示欄位</Text>
+                  <Text style={{ fontSize: 14, fontWeight: "700", color: "#23302f" }}>除錯欄位顯示</Text>
                   <Pressable
                     style={{
                       width: 50,
@@ -527,7 +527,7 @@ export default function App() {
               <View style={[styles.menuSection, { marginTop: 12, borderTopWidth: 1, borderTopColor: "#e3dac9", paddingTop: 16 }]}>
                 <Pressable style={[styles.secondaryButton, { backgroundColor: "#f0d8d3" }]} onPress={() => { setIsMenuOpen(false); reset(); }}>
                   <Ionicons name="refresh" size={18} color="#963f33" style={{ marginRight: 6 }} />
-                  <Text style={[styles.secondaryButtonText, { color: "#963f33" }]}>重置市場 (Restart)</Text>
+                  <Text style={[styles.secondaryButtonText, { color: "#963f33" }]}>重置市場</Text>
                 </Pressable>
               </View>
             </ScrollView>
@@ -602,16 +602,16 @@ function StartScreen({
     <SafeAreaView style={styles.menuShell}>
       <StatusBar style="dark" />
       <View style={styles.menuPanel}>
-        <Text style={styles.kicker}>STOCKY MARKET DEMO</Text>
-        <Text style={styles.menuTitle}>STOCKY</Text>
-        <Text style={styles.menuCopy}>Trade stocks, read market signals, and grow assets across 30 days.</Text>
-        <Text style={styles.menuPoints}>Talent points: {availablePoints}</Text>
+        <Text style={styles.kicker}>死亡重生賽富豪</Text>
+        <Text style={styles.menuTitle}>OuRollStocky</Text>
+        <Text style={styles.menuCopy}>賺錢 賺錢 賺錢 賺大錢.</Text>
+        <Text style={styles.menuPoints}>重生點數: {availablePoints}</Text>
         <View style={styles.menuActions}>
           <Pressable style={[styles.primaryButton, styles.menuActionButton]} onPress={onStart}>
-            <Text style={styles.primaryButtonText}>Start Game</Text>
+            <Text style={styles.primaryButtonText}>開始遊戲</Text>
           </Pressable>
           <Pressable style={[styles.secondaryButton, styles.menuActionButton]} onPress={onTalent}>
-            <Text style={styles.secondaryButtonText}>Talent Tree</Text>
+            <Text style={styles.secondaryButtonText}>金手指</Text>
           </Pressable>
         </View>
       </View>
@@ -632,16 +632,16 @@ function SettlementScreen({
     <SafeAreaView style={styles.menuShell}>
       <StatusBar style="dark" />
       <View style={styles.menuPanel}>
-        <Text style={styles.kicker}>DAY 30 REPORT</Text>
-        <Text style={styles.menuHeading}>Settlement</Text>
+        <Text style={styles.kicker}>第 30 日報告</Text>
+        <Text style={styles.menuHeading}>結算</Text>
         <View style={styles.settlementGrid}>
-          <Metric label="Highest Equity" value={`$${result.highestEquity.toFixed(0)}`} tone="mint" />
-          <Metric label="Final Equity" value={`$${result.finalEquity.toFixed(0)}`} tone="ink" />
-          <Metric label="Talent Points" value={`${result.talentPoints}`} tone="gold" />
+          <Metric label="歷史最高資產" value={`$${result.highestEquity.toFixed(0)}`} tone="mint" />
+          <Metric label="最終資產" value={`$${result.finalEquity.toFixed(0)}`} tone="ink" />
+          <Metric label="重生點數" value={`${result.talentPoints}`} tone="gold" />
         </View>
-        <Text style={styles.menuCopy}>Earned {result.talentPoints} talent points. Available points: {availablePoints}.</Text>
+        <Text style={styles.menuCopy}>獲得 {result.talentPoints} 點天賦點。可用點數：{availablePoints}。</Text>
         <Pressable style={[styles.primaryButton, styles.menuActionButton]} onPress={onBackToStart}>
-          <Text style={styles.primaryButtonText}>Back to Start</Text>
+          <Text style={styles.primaryButtonText}>回到主頁</Text>
         </Pressable>
       </View>
     </SafeAreaView>
@@ -835,7 +835,7 @@ function MarketView({
           <View style={{ flexDirection: "row", gap: 10, marginBottom: 8 }}>
             <Pressable style={[styles.primaryButton, styles.dayButton]} onPress={onNextDay}>
               <Ionicons name="play-forward" size={17} color="#fff" />
-              <Text style={styles.primaryButtonText}>下一日 (Pre-market)</Text>
+              <Text style={styles.primaryButtonText}>下一日（盤前）</Text>
             </Pressable>
             <Pressable style={styles.tokenButton} onPress={onForesight}>
               <Ionicons name="sparkles" size={17} color="#5a3612" />
@@ -850,7 +850,7 @@ function MarketView({
             <View>
               <Text style={styles.stockName}>{name}</Text>
               <Text style={styles.stockMeta}>
-                {isOverallSelected ? "INDEX · 加權指數" : `${selectedStock?.code} · ${sectorLabel(selectedStock!.sector)}`}
+                {isOverallSelected ? "指數 · 加權指數" : `${selectedStock?.code} · ${sectorLabel(selectedStock!.sector)}`}
               </Text>
             </View>
             <View style={[styles.priceBadge, direction === "up" ? styles.priceUp : styles.priceDown]}>
@@ -915,7 +915,7 @@ function MarketView({
           >
             <View>
               <Text style={[styles.stockListItemName, isOverallSelected && styles.stockListItemActiveText]}>總體市場指數</Text>
-              <Text style={[styles.stockListItemCode, isOverallSelected && styles.stockListItemActiveText]}>INDEX · 全板塊平均</Text>
+              <Text style={[styles.stockListItemCode, isOverallSelected && styles.stockListItemActiveText]}>指數 · 全板塊平均</Text>
             </View>
             <View style={{ alignItems: "flex-end" }}>
               <Text style={[styles.stockListItemPrice, isOverallSelected && styles.stockListItemActiveText]}>${indexCurrent.toFixed(2)}</Text>
@@ -996,7 +996,7 @@ function MarketView({
                   if (maxBuy > 0) setTradeShares(maxBuy);
                 }}
               >
-                <Text style={[styles.smallButtonText, { color: "#23302f" }]}>All in</Text>
+                <Text style={[styles.smallButtonText, { color: "#23302f" }]}>全買</Text>
               </Pressable>
               
               <Pressable 
@@ -1151,7 +1151,7 @@ function NewsView({ state }: { state: GameState }) {
           <View style={{ flex: 1 }}>
             <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 3 }}>
               <Text style={{ fontSize: 11, fontWeight: "800", color: "#8a4a64" }}>
-                Day {item.day} · {item.time}
+                第 {item.day} 日 · {item.time}
               </Text>
               {item.companyIds && item.companyIds.length > 0 && (
                 <Text style={{ fontSize: 10, fontWeight: "900", color: "#1b5b55" }}>
