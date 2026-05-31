@@ -5,6 +5,9 @@ import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from "rea
 import {
   branchTalentAId,
   branchTalentBId,
+  getMaxPlayableDay,
+  getOpeningCashBonus,
+  getTalentEffectSummary,
   getTalentLevel,
   openingCashTalentId
 } from "../talents";
@@ -81,7 +84,7 @@ export function TalentScreen({
   const canvasWidth = Math.max(...talentNodes.map((talent) => displayX(talent) + nodeSize + canvasPadding));
   const canvasHeight = Math.max(...talentNodes.map((talent) => displayY(talent) + nodeSize + 34 + canvasPadding));
   const selectedTalentName = selectedTalent.name;
-  const selectedTalentDescription = `${selectedTalent.description} Current Lv. ${selectedLevel}/${selectedTalent.maxLevel}.`;
+  const selectedTalentDescription = `${selectedTalent.description} Current Lv. ${selectedLevel}/${selectedTalent.maxLevel}. ${getTalentEffectSummary(selectedTalent.id, selectedLevel)}`;
 
   const selectedTalentStatus =
     selectedTalentId === "base"
@@ -185,7 +188,8 @@ export function TalentScreen({
 
         <View style={styles.talentStats}>
           <Text style={styles.talentMeta}>Selected Lv. {selectedLevel} / {selectedTalent.maxLevel}</Text>
-          <Text style={styles.talentMeta}>Start bonus +${getLevel(openingCashTalentId) * 200}</Text>
+          <Text style={styles.talentMeta}>Start bonus +${getOpeningCashBonus(profile)}</Text>
+          <Text style={styles.talentMeta}>Max day {getMaxPlayableDay(profile)}</Text>
           <Text style={styles.talentMeta}>{selectedMaxed ? "Max level reached" : `Next node costs ${selectedCost} pts`}</Text>
         </View>
 
@@ -250,6 +254,12 @@ function getNodeIcon(id: string, unlocked: boolean, locked: boolean): keyof type
 
 function getNodeCaption(talent: TalentTreeNode, level: number): string {
   if (talent.id === "base") return "Start";
+  if (talent.id === "openingCash") return `$+${level * 200}`;
+  if (talent.id === "talentA") return `$+${level * 100}/day`;
+  if (talent.id === "talentB") return level > 0 ? `Stop ${80 + level}%` : "No stop";
+  if (talent.id === "talent5") return `+${level} days`;
+  if (talent.id === "talent6") return `${level}% cash/day`;
+  if (talent.id === "talent7") return `Formula ${100 + level}%`;
   if (talent.maxLevel > 1) return `Lv ${level}/${talent.maxLevel}`;
   return level > 0 ? "Lv 1" : `${getUpgradeCost(talent, level)} pts`;
 }

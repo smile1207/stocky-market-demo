@@ -4,6 +4,8 @@ import { createInitialState } from "./marketEngine";
 import { GameState, TalentProfile } from "./types";
 
 const databaseName = "stocky-market-demo.db";
+const gameStateStorageKey = "stocky_game_state";
+const talentProfileStorageKey = "stocky_talent_profile";
 
 type Database = SQLite.SQLiteDatabase;
 
@@ -35,18 +37,43 @@ function setCookie(name: string, value: string, days = 365) {
   document.cookie = name + "=" + encodeURIComponent(value || "") + expires + "; path=/";
 }
 
+function getWebStorageValue(key: string, legacyCookieName: string): string | null {
+  if (typeof window === "undefined") return null;
+  return window.localStorage.getItem(key) ?? getCookie(legacyCookieName);
+}
+
+function setWebStorageValue(key: string, value: string) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(key, value);
+}
+
+function isValidGameState(value: unknown): value is GameState {
+  const state = value as Partial<GameState> | null;
+  return Boolean(
+    state &&
+      state.economy &&
+      typeof state.economy.cash === "number" &&
+      Array.isArray(state.stocks) &&
+      Array.isArray(state.holdings) &&
+      Array.isArray(state.newsList)
+  );
+}
+
 export async function loadGameState(): Promise<GameState> {
   if (Platform.OS === "web") {
-    const cookieVal = getCookie("game_state");
-    if (!cookieVal) {
+    const storedValue = getWebStorageValue(gameStateStorageKey, "game_state");
+    if (!storedValue) {
       const initial = createInitialState();
       await saveGameState(initial);
       return initial;
     }
     try {
-      return JSON.parse(cookieVal) as GameState;
+      const parsed = JSON.parse(storedValue);
+      if (!isValidGameState(parsed)) throw new Error("Invalid game state shape");
+      await saveGameState(parsed);
+      return parsed;
     } catch (e) {
-      console.warn("Failed to parse game state cookie, creating new state", e);
+      console.warn("Failed to parse saved web game state, creating new state", e);
       const initial = createInitialState();
       await saveGameState(initial);
       return initial;
@@ -66,7 +93,7 @@ export async function loadGameState(): Promise<GameState> {
 
 export async function saveGameState(state: GameState): Promise<void> {
   if (Platform.OS === "web") {
-    setCookie("game_state", JSON.stringify(state));
+    setWebStorageValue(gameStateStorageKey, JSON.stringify(state));
     return;
   }
 
@@ -87,12 +114,14 @@ export async function resetGameState(): Promise<GameState> {
 
 export async function loadTalentProfile(): Promise<TalentProfile> {
   if (Platform.OS === "web") {
-    const cookieVal = getCookie("talent_profile");
-    if (!cookieVal) {
+    const storedValue = getWebStorageValue(talentProfileStorageKey, "talent_profile");
+    if (!storedValue) {
       return normalizeTalentProfile({});
     }
     try {
-      return normalizeTalentProfile(JSON.parse(cookieVal));
+      const profile = normalizeTalentProfile(JSON.parse(storedValue));
+      await saveTalentProfile(profile);
+      return profile;
     } catch (e) {
       console.warn("Failed to parse talent profile cookie", e);
       return normalizeTalentProfile({});
@@ -107,7 +136,7 @@ export async function loadTalentProfile(): Promise<TalentProfile> {
 
 export async function saveTalentProfile(profile: TalentProfile): Promise<void> {
   if (Platform.OS === "web") {
-    setCookie("talent_profile", JSON.stringify(profile));
+    setWebStorageValue(talentProfileStorageKey, JSON.stringify(profile));
     return;
   }
 

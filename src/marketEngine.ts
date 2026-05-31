@@ -1,4 +1,12 @@
-import { Economy, GameState, Holding, Sector, Stock, TradeResult, WorldEvent, NewsItem } from "./types";
+import { Economy, GameState, Holding, Sector, Stock, TalentProfile, TradeResult, WorldEvent, NewsItem } from "./types";
+import {
+  getAutoSellSettlementRatio,
+  getDailyCashIncome,
+  getPriceFormulaLevel,
+  getSettlementEquityPointBonus,
+  getSettlementFlatPointBonus,
+  getTradeFeeRate
+} from "./talents";
 
 const sectors: Record<Sector, string> = {
   food: "民生",
@@ -283,11 +291,12 @@ export function createInitialState(initialCash = baseInitialAsset): GameState {
   };
 }
 
-export function buyStock(state: GameState, stockId: string, shares: number): TradeResult {
+export function buyStock(state: GameState, stockId: string, shares: number, talentProfile?: TalentProfile): TradeResult {
   const stock = state.stocks.find((item) => item.id === stockId);
   if (!stock) return { state, message: "找不到股票。" };
 
-  const cost = roundMoney(stock.price * shares * 1.006);
+  const feeRate = getTradeFeeRate(talentProfile, 0.006);
+  const cost = roundMoney(stock.price * shares * (1 + feeRate));
   if (state.economy.cash < cost) {
     return { state, message: "現金不足，無法買入。" };
   }
@@ -327,13 +336,14 @@ export function buyStock(state: GameState, stockId: string, shares: number): Tra
   };
 }
 
-export function sellStock(state: GameState, stockId: string, shares: number): TradeResult {
+export function sellStock(state: GameState, stockId: string, shares: number, talentProfile?: TalentProfile): TradeResult {
   const stock = state.stocks.find((item) => item.id === stockId);
   const holding = state.holdings.find((item) => item.stockId === stockId);
   if (!stock || !holding) return { state, message: "沒有可賣出的持股。" };
   if (holding.shares < shares) return { state, message: "持股不足。" };
 
-  const proceeds = roundMoney(stock.price * shares * 0.994);
+  const feeRate = getTradeFeeRate(talentProfile, 0.006);
+  const proceeds = roundMoney(stock.price * shares * (1 - feeRate));
   const holdings = state.holdings
     .map((item) => (item.stockId === stockId ? { ...item, shares: item.shares - shares } : item))
     .filter((item) => item.shares > 0);
@@ -400,7 +410,7 @@ export function useForesight(state: GameState): TradeResult {
   };
 }
 
-export function tickMarket(state: GameState): GameState {
+export function tickMarket(state: GameState, talentProfile?: TalentProfile): GameState {
   if (!state.isTrading || state.isPaused) return state;
 
   const nextMinutes = state.currentMinutes + 1;
@@ -428,7 +438,14 @@ export function tickMarket(state: GameState): GameState {
       const baseChange = (demandPressure + eventImpact + inflationLift + heatLift + stabilizer) / 45;
       const randomNoise = (Math.random() - 0.5) * stock.volatility * 0.3; // active intraday fluctuation
 
-      const change = clamp(baseChange + randomNoise, -0.02, 0.02);
+      const change = getPriceChangeRate({
+        baseChange,
+        factor: demandPressure + inflationLift + heatLift + stabilizer + randomNoise,
+        marketHeat: state.economy.marketHeat,
+        newsWeight: eventImpact,
+        stock,
+        talentProfile
+      });
       const price = roundMoney(clamp(stock.price * (1 + change), stock.basePrice * 0.35, stock.basePrice * 3.2));
 
       // 2. Intraday demand/supply drift
@@ -472,7 +489,14 @@ export function tickMarket(state: GameState): GameState {
     stocks = stocks.map((stock) => {
       const impact = template.sectorImpacts[stock.sector] ?? 0;
       if (impact === 0) return stock;
-      const immediateChange = impact * 0.3;
+      const immediateChange = getPriceChangeRate({
+        baseChange: impact * 0.3,
+        factor: impact * 0.3,
+        marketHeat: state.economy.marketHeat,
+        newsWeight: impact,
+        stock,
+        talentProfile
+      });
       const price = roundMoney(
         clamp(stock.price * (1 + immediateChange), stock.basePrice * 0.35, stock.basePrice * 3.2)
       );
@@ -510,6 +534,8 @@ export function tickMarket(state: GameState): GameState {
     currentMinutes: minutes,
     marketHistory
   };
+
+  nextState = applyAutoSellStopLoss(nextState, talentProfile, timeStr);
 
   // Auto-pause at match moments (if not close)
   if (isMatchMoment && !isClose) {
@@ -568,7 +594,7 @@ export function tickMarket(state: GameState): GameState {
   return withHighestEquity(nextState);
 }
 
-export function advanceDay(state: GameState): GameState {
+export function advanceDay(state: GameState, talentProfile?: TalentProfile): GameState {
   const day = state.economy.day + 1;
   
   let stocks = state.stocks.map((stock) => ({
@@ -582,7 +608,21 @@ export function advanceDay(state: GameState): GameState {
   stocks = stocks.map((stock) => {
     const impact1 = pmEvent1.sectorImpacts[stock.sector] ?? 0;
     const impact2 = pmEvent2.sectorImpacts[stock.sector] ?? 0;
-    const totalImpact = impact1 + impact2;
+    const totalNewsWeight = impact1 + impact2;
+    const demandPressure = (stock.demand - stock.supply) / 220;
+    const inflationLift = state.economy.inflation * (stock.sector === "food" || stock.sector === "energy" ? 0.62 : 0.28);
+    const heatLift = (state.economy.marketHeat - 0.45) * stock.volatility;
+    const stabilizer = ((stock.basePrice - stock.price) / stock.basePrice) * stock.stability * 0.08;
+    const totalImpact = getPriceChangeRate({
+      baseChange: totalNewsWeight,
+      factor: demandPressure + inflationLift + heatLift + stabilizer,
+      marketHeat: state.economy.marketHeat,
+      newsWeight: totalNewsWeight,
+      stock,
+      talentProfile,
+      clampMin: -0.28,
+      clampMax: 0.28
+    });
     
     const price = roundMoney(
       clamp(stock.price * (1 + totalImpact), stock.basePrice * 0.35, stock.basePrice * 3.2)
@@ -626,13 +666,26 @@ export function advanceDay(state: GameState): GameState {
   }
   intradayNewsTimes.sort((a, b) => a - b);
 
-  const newsList = [newsItem2, newsItem1, ...state.newsList];
+  const dailyCashIncome = getDailyCashIncome(talentProfile, state.economy.cash);
+  const dailyIncomeNews =
+    dailyCashIncome.totalIncome > 0
+      ? [
+          {
+            id: `daily-income-${day}`,
+            text: `天賦收入：被動收入 +$${dailyCashIncome.flatIncome.toFixed(2)}，利息 +$${dailyCashIncome.interestIncome.toFixed(2)}。`,
+            day,
+            time: "開盤"
+          }
+        ]
+      : [];
+  const newsList = [...dailyIncomeNews, newsItem2, newsItem1, ...state.newsList];
 
-  return withHighestEquity({
+  return withHighestEquity(applyAutoSellStopLoss({
     ...state,
     economy: {
       ...state.economy,
       day,
+      cash: roundMoney(state.economy.cash + dailyCashIncome.totalIncome),
       foresightUsedToday: false
     },
     stocks,
@@ -641,7 +694,7 @@ export function advanceDay(state: GameState): GameState {
     isTrading: false,
     isPaused: true,
     intradayNewsTimes
-  });
+  }, talentProfile, "?"));
 }
 
 export function totalEquity(state: GameState): number {
@@ -663,8 +716,84 @@ export function withHighestEquity(state: GameState): GameState {
   };
 }
 
-export function calculateTalentPoints(finalEquity: number, highestEquity: number, initialAsset: number): number {
-  return Math.round((finalEquity / initialAsset) * 100 + (highestEquity / initialAsset) * 70);
+export function calculateTalentPoints(
+  finalEquity: number,
+  highestEquity: number,
+  initialAsset: number,
+  talentProfile?: TalentProfile
+): number {
+  const basePoints = Math.round((finalEquity / initialAsset) * 100 + (highestEquity / initialAsset) * 70);
+  const flatBonus = talentProfile ? getSettlementFlatPointBonus(talentProfile) : 0;
+  const equityBonus = getSettlementEquityPointBonus(talentProfile, finalEquity, initialAsset);
+  return basePoints + flatBonus + equityBonus;
+}
+
+function getPriceChangeRate({
+  baseChange,
+  factor,
+  marketHeat,
+  newsWeight,
+  stock,
+  talentProfile,
+  clampMin = -0.02,
+  clampMax = 0.02
+}: {
+  baseChange: number;
+  factor: number;
+  marketHeat: number;
+  newsWeight: number;
+  stock: Stock;
+  talentProfile?: TalentProfile;
+  clampMin?: number;
+  clampMax?: number;
+}): number {
+  const level = getPriceFormulaLevel(talentProfile);
+  if (level <= 0) return clamp(baseChange, clampMin, clampMax);
+
+  const companyFactor = factor * stock.volatility * ((100 + level) / 100);
+  const sentimentValue = marketHeat - 0.45;
+  const newsFactor = newsWeight * sentimentValue;
+  return clamp(companyFactor + newsFactor, clampMin, clampMax);
+}
+
+function applyAutoSellStopLoss(state: GameState, talentProfile: TalentProfile | undefined, time: string): GameState {
+  const settlementRatio = getAutoSellSettlementRatio(talentProfile);
+  if (!settlementRatio) return state;
+
+  let cashGain = 0;
+  const soldNews: NewsItem[] = [];
+  const nextHoldings = state.holdings.filter((holding) => {
+    const stock = state.stocks.find((item) => item.id === holding.stockId);
+    if (!stock || holding.averageCost <= 0) return true;
+
+    const returnRatio = stock.price / holding.averageCost;
+    if (returnRatio > settlementRatio) return true;
+
+    const settlementPrice = roundMoney(holding.averageCost * settlementRatio);
+    const proceeds = roundMoney(settlementPrice * holding.shares);
+    cashGain += proceeds;
+    soldNews.push({
+      id: `auto-sell-${state.economy.day}-${time}-${holding.stockId}-${Date.now()}`,
+      text: `自動停損：${stock.name} 跌破 ${(settlementRatio * 100).toFixed(0)}%，以 $${settlementPrice.toFixed(2)} 結算 ${holding.shares} 股。`,
+      day: state.economy.day,
+      time,
+      companyIds: [holding.stockId]
+    });
+    return false;
+  });
+
+  if (soldNews.length === 0) return state;
+
+  return {
+    ...state,
+    economy: {
+      ...state.economy,
+      cash: roundMoney(state.economy.cash + cashGain)
+    },
+    holdings: nextHoldings,
+    newsList: [...soldNews, ...state.newsList],
+    news: [...soldNews.map((item) => item.text), ...state.news].slice(0, 12)
+  };
 }
 
 function advanceEconomy(economy: Economy, events: WorldEvent[]): Economy {
@@ -713,7 +842,7 @@ function roundMoney(value: number): number {
   return Math.round(value * 100) / 100;
 }
 
-export function skipMatch(state: GameState): GameState {
+export function skipMatch(state: GameState, talentProfile?: TalentProfile): GameState {
   if (!state.isTrading) return state;
   if (state.currentMinutes >= 270) {
     return { ...state, currentMinutes: 270, isTrading: false, isPaused: true };
@@ -728,7 +857,7 @@ export function skipMatch(state: GameState): GameState {
 
   let curr = { ...state, isPaused: false, isTrading: true };
   while (curr.currentMinutes < nextMatchMinutes && curr.isTrading) {
-    curr = tickMarket(curr);
+    curr = tickMarket(curr, talentProfile);
   }
   if (curr.isTrading) {
     curr.isPaused = true;
@@ -736,12 +865,12 @@ export function skipMatch(state: GameState): GameState {
   return curr;
 }
 
-export function skipToday(state: GameState): GameState {
+export function skipToday(state: GameState, talentProfile?: TalentProfile): GameState {
   if (!state.isTrading) return state;
   let curr = { ...state, isPaused: false, isTrading: true };
   let remainingTicks = 271 - curr.currentMinutes;
   while (curr.isTrading && remainingTicks > 0) {
-    curr = tickMarket(curr);
+    curr = tickMarket(curr, talentProfile);
     if (curr.isTrading) {
       curr = { ...curr, isPaused: false };
     }

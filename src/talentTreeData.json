@@ -28,7 +28,7 @@
       "maxLevel": 100,
       "cost": 100,
       "growth": 1.25,
-      "description": "每級可使每日被動收入+1\n啃老之力!"
+      "description": "每級可使每日被動收入+100\n啃老之力!"
     },
     {
       "id": "talentB",

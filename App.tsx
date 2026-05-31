@@ -31,7 +31,12 @@ import {
   skipToday
 } from "./src/marketEngine";
 import { loadGameState, loadTalentProfile, resetGameStateWithCash, saveGameState, saveTalentProfile } from "./src/storage";
-import { getTalentLevel, openingCashTalentId } from "./src/talents";
+import {
+  getMaxPlayableDay,
+  getStartingCash as getTalentStartingCash,
+  getTalentLevel,
+  openingCashTalentId
+} from "./src/talents";
 import { GameState, SettlementResult, Stock, TalentProfile } from "./src/types";
 import { TalentScreen } from "./src/screens/TalentScreen";
 
@@ -91,7 +96,7 @@ export default function App() {
     const timer = setInterval(() => {
       setState((curr) => {
         if (!curr) return curr;
-        const next = tickMarket(curr);
+        const next = tickMarket(curr, talentProfile);
         // Alert when day closed
         if (!next.isTrading && curr.isTrading) {
           setMessage(`第 ${curr.economy.day} 日收盤：通膨 ${(next.economy.inflation * 100).toFixed(1)}%，市場熱度 ${(next.economy.marketHeat * 100).toFixed(0)}%。`);
@@ -101,7 +106,7 @@ export default function App() {
     }, intervalTime);
 
     return () => clearInterval(timer);
-  }, [state?.isTrading, state?.isPaused, state?.gameSpeed]);
+  }, [state?.isTrading, state?.isPaused, state?.gameSpeed, talentProfile]);
 
   const selectedStock = useMemo(
     () => selectedId === "overall" ? null : (state?.stocks.find((stock) => stock.id === selectedId) ?? null),
@@ -118,7 +123,10 @@ export default function App() {
   }
 
   const applyTrade = (action: "buy" | "sell", shares: number, stockId = selectedId) => {
-    const result = action === "buy" ? buyStock(state, stockId, shares) : sellStock(state, stockId, shares);
+    const result =
+      action === "buy"
+        ? buyStock(state, stockId, shares, talentProfile)
+        : sellStock(state, stockId, shares, talentProfile);
     setState(withHighestEquity(result.state));
     setMessage(result.message);
   };
@@ -136,8 +144,8 @@ export default function App() {
   };
 
   const nextDay = () => {
-    const next = advanceDay(state);
-    if (next.economy.day >= 30) {
+    const next = advanceDay(state, talentProfile);
+    if (next.economy.day >= getMaxPlayableDay(talentProfile)) {
       finishGame(next);
       return;
     }
@@ -159,7 +167,7 @@ export default function App() {
       initialAsset: settledState.initialAsset,
       highestEquity: settledState.highestEquity,
       finalEquity,
-      talentPoints: calculateTalentPoints(finalEquity, settledState.highestEquity, settledState.initialAsset)
+      talentPoints: calculateTalentPoints(finalEquity, settledState.highestEquity, settledState.initialAsset, talentProfile)
     };
     setTalentProfile({
       ...talentProfile,
@@ -243,7 +251,7 @@ export default function App() {
   };
 
   const skipMatchHandler = () => {
-    const next = skipMatch(state);
+    const next = skipMatch(state, talentProfile);
     setState(next);
     if (!next.isTrading && state.isTrading) {
       setMessage(`第 ${state.economy.day} 日收盤：通膨 ${(next.economy.inflation * 100).toFixed(1)}%，市場熱度 ${(next.economy.marketHeat * 100).toFixed(0)}%。`);
@@ -253,7 +261,7 @@ export default function App() {
   };
 
   const skipTodayHandler = () => {
-    const next = skipToday(state);
+    const next = skipToday(state, talentProfile);
     setState(next);
     if (next !== state) {
       setMessage(`第 ${state.economy.day} 日收盤：通膨 ${(next.economy.inflation * 100).toFixed(1)}%，市場熱度 ${(next.economy.marketHeat * 100).toFixed(0)}%。`);
@@ -287,7 +295,7 @@ export default function App() {
   if (screen === "settlement") {
     return (
       <SettlementScreen
-        result={state.endResult ?? createSettlementResult(state)}
+        result={state.endResult ?? createSettlementResult(state, talentProfile)}
         availablePoints={talentProfile.availablePoints}
         onBackToStart={backToStart}
       />
@@ -1219,17 +1227,17 @@ function normalizeGameState(state: GameState): GameState {
 }
 
 function getStartingCash(profile: TalentProfile): number {
-  return baseInitialAsset + getTalentLevel(profile, openingCashTalentId) * 200;
+  return getTalentStartingCash(baseInitialAsset, profile);
 }
 
-function createSettlementResult(state: GameState): SettlementResult {
+function createSettlementResult(state: GameState, profile?: TalentProfile): SettlementResult {
   const settledState = withHighestEquity(state);
   const finalEquity = totalEquity(settledState);
   return {
     initialAsset: settledState.initialAsset,
     highestEquity: settledState.highestEquity,
     finalEquity,
-    talentPoints: calculateTalentPoints(finalEquity, settledState.highestEquity, settledState.initialAsset)
+    talentPoints: calculateTalentPoints(finalEquity, settledState.highestEquity, settledState.initialAsset, profile)
   };
 }
 
